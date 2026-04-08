@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Ariadne</title>
+  <link rel="icon" type="image/png" href="/assets/ariadne-logo-light.png">
+  <link rel="apple-touch-icon" href="/assets/ariadne-logo-dark.png">
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <main class="page-shell">
+    <section class="shell">
+    <div class="toolbar">
+      <button class="theme-toggle" id="theme-toggle" type="button" aria-label="Toggle color theme">
+        Theme
+      </button>
+    </div>
+    <section class="hero">
+      <div class="brand">
+        <img
+          id="brand-logo"
+          src="/assets/ariadne-logo-light.png"
+          data-logo-light="/assets/ariadne-logo-light.png"
+          data-logo-dark="/assets/ariadne-logo-dark.png"
+          alt="Ariadne logo"
+        >
+      </div>
+      <div class="headline">
+        <h1>Ariadne</h1>
+        <p>
+          Artifact-connected documentation assistant for reducing documentation drift.
+          The service accepts change events, analyzes affected artifacts, applies redaction,
+          and generates reviewable documentation update proposals.
+        </p>
+        <div class="actions">
+          <a class="primary" href="/openapi">Open API</a>
+          <a class="secondary" href="/proposals">Recent Proposals</a>
+        </div>
+      </div>
+    </section>
+    <section class="grid">
+      <article class="card">
+        <h2>What It Does</h2>
+        <p>
+          Ariadne turns a trigger such as a Git diff or webhook payload into a structured
+          proposal with Markdown and JSON output for human review.
+        </p>
+      </article>
+      <article class="card">
+        <h2>Main Routes</h2>
+        <ul>
+          <li><code>POST /trigger</code> for normalized trigger envelopes</li>
+          <li><code>POST /trigger/git</code> for direct Git-based triggering</li>
+          <li><code>GET /proposals</code> to inspect stored proposals</li>
+        </ul>
+      </article>
+      <article class="card">
+        <h2>Operating Model</h2>
+        <p>
+          The current public implementation is Git-first, proposal-oriented, and designed
+          to run both locally and in a production deployment with external connectors later.
+        </p>
+      </article>
+    </section>
+    </section>
+  </main>
+  <script>
+    (function () {
+      const storageKey = "ariadne-theme";
+      const root = document.documentElement;
+      const toggle = document.getElementById("theme-toggle");
+      const logo = document.getElementById("brand-logo");
+
+      function systemTheme() {
+        return window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+      }
+
+      function activeTheme() {
+        return root.dataset.theme || systemTheme();
+      }
+
+      function applyTheme(theme) {
+        root.dataset.theme = theme;
+        toggle.textContent = theme === "dark" ? "Light Mode" : "Dark Mode";
+        logo.src = theme === "dark" ? logo.dataset.logoDark : logo.dataset.logoLight;
+      }
+
+      const storedTheme = localStorage.getItem(storageKey);
+      if (storedTheme === "light" || storedTheme === "dark") {
+        applyTheme(storedTheme);
+      } else {
+        applyTheme(systemTheme());
+      }
+
+      toggle.addEventListener("click", function () {
+        const nextTheme = activeTheme() === "dark" ? "light" : "dark";
+        localStorage.setItem(storageKey, nextTheme);
+        applyTheme(nextTheme);
+      });
+    })();
+  </script>
+</body>
+</html>

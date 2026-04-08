@@ -1,0 +1,41 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ariadne-doc-assistant"
+version = "0.1.0"
+description = "Ariadne documentation assistant for artifact-connected proposal generation"
+readme = { text = "## Ariadne Backend\n\nBackend package for Ariadne, the artifact-connected documentation assistant.", content-type = "text/markdown" }
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "Diploma Thesis Project" }]
+dependencies = [
+  "fastapi>=0.115,<1.0",
+  "uvicorn[standard]>=0.30,<1.0",
+  "pydantic>=2.7,<3.0",
+  "pydantic-settings>=2.3,<3.0",
+  "sqlalchemy>=2.0,<3.0",
+  "alembic>=1.13,<2.0",
+  "psycopg[binary]>=3.2,<4.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "httpx>=0.27,<1.0",
+  "pytest>=8.2,<9.0",
+]
+
+[project.scripts]
+ariadne-doc = "ariadne_doc_assistant.main:main"
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["ariadne_doc_assistant*"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]

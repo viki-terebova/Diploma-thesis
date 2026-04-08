@@ -1,0 +1,1 @@
+"""Ariadne documentation assistant package."""

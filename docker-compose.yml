@@ -1,0 +1,37 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: ariadne-postgres
+    environment:
+      POSTGRES_DB: ariadne_db
+      POSTGRES_USER: ariadne_user
+      POSTGRES_PASSWORD: ariadne_db_password
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+
+  ariadne:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: ariadne
+    working_dir: /workspace/backend
+    command: sh -c "alembic upgrade head && uvicorn ariadne_doc_assistant.main:app --host 0.0.0.0 --port 8000"
+    ports:
+      - "8000:8000"
+    environment:
+      PYTHONPATH: /workspace/backend/src
+      POSTGRES_DATABASE_URL: postgresql+psycopg://ariadne_user:ariadne_db_password@postgres:5432/ariadne_db
+      APP_OUTPUT_DIR: /workspace/output/proposals
+      APP_LOG_LEVEL: INFO
+      APP_ENABLE_INTEGRATED_CONNECTORS: "false"
+    volumes:
+      - ./:/workspace
+    depends_on:
+      - postgres
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
