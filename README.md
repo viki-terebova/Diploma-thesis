@@ -1,6 +1,6 @@
 # Ariadne (ariadne-doc-assistant)
 
-![Ariadne logo](assets/ariadne-logo-dark.png)
+<img src="assets/ariadne-logo-dark.png" alt="Ariadne logo" width="220">
 
 Ariadne is an artifact-connected documentation assistant for reducing documentation drift.
 
