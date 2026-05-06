@@ -23,12 +23,24 @@ OPENAPI_TAGS = [
         "description": "Endpoints for creating and retrieving stored source or target connector configurations.",
     },
     {
+        "name": "Targets",
+        "description": "Endpoints for managing documentation targets used by the local demo target connector.",
+    },
+    {
+        "name": "Policies",
+        "description": "Endpoints for approval and autonomy policies applied to documentation targets.",
+    },
+    {
         "name": "Triggers",
         "description": "Endpoints used to submit change events and start proposal generation.",
     },
     {
         "name": "Proposals",
         "description": "Endpoints for listing and retrieving generated documentation proposals.",
+    },
+    {
+        "name": "Patches",
+        "description": "Endpoints for reviewing, approving, and applying generated documentation patches.",
     },
 ]
 

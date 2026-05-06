@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import json
+from difflib import unified_diff
 from uuid import uuid4
 
 from ariadne_doc_assistant.core.policies import redact_data, redact_text
-from ariadne_doc_assistant.storage.models import Proposal
+from ariadne_doc_assistant.storage.models import Proposal, ProposalPatch
 from ariadne_doc_assistant.utils.time import utc_now_iso
 
 
@@ -50,6 +51,103 @@ def build_proposal(
         draft_json=json.dumps(payload, indent=2),
         status="DRAFT",
     )
+
+
+def build_patch(
+    proposal: Proposal,
+    *,
+    target_id: str,
+    target_path: str,
+    patch_type: str,
+    current_content: str,
+    proposed_content: str,
+    summary: str,
+) -> ProposalPatch:
+    return ProposalPatch(
+        id=str(uuid4()),
+        proposal_id=proposal.id,
+        target_id=target_id,
+        target_path=target_path,
+        patch_type=patch_type,
+        summary=redact_text(summary),
+        current_content=current_content,
+        proposed_content=proposed_content,
+        diff_text=render_diff(current_content, proposed_content),
+        status="PROPOSED",
+        created_at=utc_now_iso(),
+    )
+
+
+def build_local_docs_patch_content(
+    current_content: str,
+    *,
+    source_event: dict,
+    diff_summary: str,
+    affected_files: list[str],
+    suggested_sections: list[str],
+    llm_output: str,
+) -> str:
+    if not current_content.strip():
+        title = source_event.get("title") or "Proposed Documentation Page"
+        return "\n".join(
+            [
+                f"# {redact_text(title)}",
+                "",
+                "This page was created by the Ariadne local demo flow because no existing documentation target matched the incoming change event.",
+                "",
+                "## Summary of change",
+                redact_text(diff_summary),
+                "",
+                "## Affected files",
+                *([f"- `{path}`" for path in affected_files] or ["- No affected files detected"]),
+                "",
+                "## Suggested sections",
+                *([f"- {section}" for section in suggested_sections] or ["- General documentation review"]),
+                "",
+                "## Draft guidance",
+                redact_text(llm_output),
+                "",
+                "<!-- ARIADNE:PATCH-START -->",
+                "## Proposed Documentation Update",
+                "",
+                "This document was created as a new target because no existing page was matched.",
+                "<!-- ARIADNE:PATCH-END -->",
+                "",
+            ]
+        )
+
+    affected_file_lines = [f"- `{path}`" for path in affected_files] or ["- No affected files detected"]
+    suggested_section_lines = [f"- {section}" for section in suggested_sections] or ["- General documentation review"]
+    review_block = "\n".join(
+        [
+            "<!-- ARIADNE:PATCH-START -->",
+            "## Proposed Documentation Update",
+            "",
+            f"Source: `{source_event.get('source_type', 'unknown')}` / `{source_event.get('event_type', 'unknown')}`",
+            "",
+            "### Change summary",
+            redact_text(diff_summary),
+            "",
+            "### Affected files",
+            *affected_file_lines,
+            "",
+            "### Suggested sections",
+            *suggested_section_lines,
+            "",
+            "### Draft guidance",
+            redact_text(llm_output),
+            "<!-- ARIADNE:PATCH-END -->",
+        ]
+    )
+
+    start_marker = "<!-- ARIADNE:PATCH-START -->"
+    end_marker = "<!-- ARIADNE:PATCH-END -->"
+    if start_marker in current_content and end_marker in current_content:
+        before, remainder = current_content.split(start_marker, 1)
+        _, after = remainder.split(end_marker, 1)
+        return before.rstrip() + "\n\n" + review_block + "\n" + after.lstrip()
+
+    return current_content.rstrip() + "\n\n" + review_block + "\n"
 
 
 def render_markdown(
@@ -110,3 +208,15 @@ def truncate_diff(diff_text: str, max_lines: int = 80, max_chars_per_line: int =
     elif len(lines) > max_lines:
         trimmed.append("... diff truncated ...")
     return "\n".join(trimmed)
+
+
+def render_diff(current_content: str, proposed_content: str) -> str:
+    diff_lines = unified_diff(
+        current_content.splitlines(),
+        proposed_content.splitlines(),
+        fromfile="current",
+        tofile="proposed",
+        lineterm="",
+    )
+    rendered = "\n".join(diff_lines)
+    return truncate_diff(rendered, max_lines=120, max_chars_per_line=240)

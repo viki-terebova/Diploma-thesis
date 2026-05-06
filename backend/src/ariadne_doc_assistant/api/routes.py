@@ -14,6 +14,7 @@ from ariadne_doc_assistant.connectors.github_source import GitHubSourceConnector
 from ariadne_doc_assistant.connectors.models import ConnectionConfig
 from ariadne_doc_assistant.core.pipeline import ProposalPipeline
 from ariadne_doc_assistant.storage.db import ProposalRepository
+from ariadne_doc_assistant.storage.models import ApprovalPolicy, DocumentationTarget
 from ariadne_doc_assistant.storage.session import get_db_session
 
 
@@ -161,6 +162,7 @@ class ProposalResponse(BaseModel):
     draft_markdown: str
     draft_json: dict[str, Any] | str
     status: str
+    patch: dict[str, Any] | None = None
 
 
 class ConnectionCreateRequest(BaseModel):
@@ -213,6 +215,75 @@ class ConnectionResponse(BaseModel):
     config: dict[str, Any]
     secret_ref: str | None = None
     is_enabled: bool
+
+
+class DocumentationTargetCreateRequest(BaseModel):
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "id": "local-api-doc",
+                "name": "Local API documentation",
+                "target_kind": "local_docs",
+                "storage_path": "sample_docs/api.md",
+                "scope": "page",
+                "config": {
+                    "component": "backend",
+                    "match_any_prefixes": ["docs/", "backend/src/ariadne_doc_assistant/api/"],
+                    "repository": "org/repo",
+                },
+                "is_enabled": True,
+            }
+        }
+    )
+
+    id: str | None = None
+    name: str
+    target_kind: str = "local_docs"
+    storage_path: str
+    scope: str = "page"
+    config: dict[str, Any] = Field(default_factory=dict)
+    is_enabled: bool = True
+
+
+class DocumentationTargetResponse(BaseModel):
+    id: str
+    name: str
+    target_kind: str
+    storage_path: str
+    scope: str
+    config: dict[str, Any]
+    is_enabled: bool
+
+
+class ApprovalPolicyRequest(BaseModel):
+    review_required: bool = True
+    auto_apply: bool = False
+    allowed_scope: str = "review_only"
+    is_enabled: bool = True
+
+
+class ApprovalPolicyResponse(BaseModel):
+    id: str
+    target_id: str
+    review_required: bool
+    auto_apply: bool
+    allowed_scope: str
+    is_enabled: bool
+
+
+class ProposalPatchResponse(BaseModel):
+    id: str
+    proposal_id: str
+    target_id: str
+    target_path: str
+    summary: str
+    current_content: str
+    proposed_content: str
+    diff_text: str
+    status: str
+    created_at: str
+    approved_at: str | None = None
+    applied_at: str | None = None
 
 
 class GitHubWebhookRequest(BaseModel):
@@ -355,6 +426,107 @@ def get_connection(
 
 
 @router.post(
+    "/documentation-targets",
+    tags=["Targets"],
+    summary="Create a stored documentation target",
+    description="Creates a documentation target that can be located and updated by the local target connector.",
+    response_model=DocumentationTargetResponse,
+)
+def create_documentation_target(
+    request: DocumentationTargetCreateRequest,
+    repo: ProposalRepository = Depends(get_repository),
+):
+    target_id = request.id or str(uuid4())
+    try:
+        target = repo.create_documentation_target(
+            DocumentationTarget(
+                id=target_id,
+                name=request.name,
+                target_kind=request.target_kind,
+                storage_path=request.storage_path,
+                scope=request.scope,
+                config=request.config,
+                is_enabled=request.is_enabled,
+            )
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return target.to_dict()
+
+
+@router.get(
+    "/documentation-targets",
+    tags=["Targets"],
+    summary="List stored documentation targets",
+    response_model=list[DocumentationTargetResponse],
+)
+def list_documentation_targets(
+    limit: int = 50,
+    repo: ProposalRepository = Depends(get_repository),
+):
+    return [target.to_dict() for target in repo.list_documentation_targets(limit=limit)]
+
+
+@router.get(
+    "/documentation-targets/{target_id}",
+    tags=["Targets"],
+    summary="Get one documentation target",
+    response_model=DocumentationTargetResponse,
+)
+def get_documentation_target(
+    target_id: str,
+    repo: ProposalRepository = Depends(get_repository),
+):
+    target = repo.get_documentation_target(target_id)
+    if target is None:
+        raise HTTPException(status_code=404, detail="Documentation target not found")
+    return target.to_dict()
+
+
+@router.post(
+    "/documentation-targets/{target_id}/policy",
+    tags=["Policies"],
+    summary="Create or update the approval policy for a documentation target",
+    response_model=ApprovalPolicyResponse,
+)
+def upsert_target_policy(
+    target_id: str,
+    request: ApprovalPolicyRequest,
+    repo: ProposalRepository = Depends(get_repository),
+):
+    target = repo.get_documentation_target(target_id)
+    if target is None:
+        raise HTTPException(status_code=404, detail="Documentation target not found")
+    policy = repo.upsert_approval_policy(
+        ApprovalPolicy(
+            id=f"policy-{target_id}",
+            target_id=target_id,
+            review_required=request.review_required,
+            auto_apply=request.auto_apply,
+            allowed_scope=request.allowed_scope,
+            is_enabled=request.is_enabled,
+        )
+    )
+    return policy.to_dict()
+
+
+@router.get(
+    "/documentation-targets/{target_id}/policy",
+    tags=["Policies"],
+    summary="Get the approval policy for a documentation target",
+    response_model=ApprovalPolicyResponse,
+)
+def get_target_policy(
+    target_id: str,
+    repo: ProposalRepository = Depends(get_repository),
+):
+    policy = repo.get_approval_policy(target_id)
+    if policy is None:
+        raise HTTPException(status_code=404, detail="Approval policy not found")
+    return policy.to_dict()
+
+
+@router.post(
     "/webhooks/github/{connection_id}",
     tags=["Triggers"],
     summary="Receive a GitHub webhook and generate a proposal",
@@ -387,6 +559,72 @@ def github_webhook(
         return pipeline.run_artifact_bundle(bundle)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get(
+    "/patches",
+    tags=["Patches"],
+    summary="List generated documentation patches",
+    response_model=list[ProposalPatchResponse],
+)
+def list_patches(
+    limit: int = 50,
+    repo: ProposalRepository = Depends(get_repository),
+):
+    return repo.list_patches(limit=limit)
+
+
+@router.get(
+    "/patches/{patch_id}",
+    tags=["Patches"],
+    summary="Get one documentation patch",
+    response_model=ProposalPatchResponse,
+)
+def get_patch(
+    patch_id: str,
+    repo: ProposalRepository = Depends(get_repository),
+):
+    patch = repo.get_patch(patch_id)
+    if patch is None:
+        raise HTTPException(status_code=404, detail="Patch not found")
+    return patch
+
+
+@router.post(
+    "/patches/{patch_id}/approve",
+    tags=["Patches"],
+    summary="Approve a generated documentation patch",
+    response_model=ProposalPatchResponse,
+)
+def approve_patch(
+    patch_id: str,
+    pipeline: ProposalPipeline = Depends(get_pipeline),
+):
+    patch = pipeline.approve_patch(patch_id)
+    if patch is None:
+        raise HTTPException(status_code=404, detail="Patch not found")
+    return patch
+
+
+@router.post(
+    "/patches/{patch_id}/apply",
+    tags=["Patches"],
+    summary="Apply a generated documentation patch to the local target",
+    response_model=ProposalPatchResponse,
+)
+def apply_patch(
+    patch_id: str,
+    pipeline: ProposalPipeline = Depends(get_pipeline),
+):
+    try:
+        patch = pipeline.apply_patch(patch_id)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if patch is None:
+        raise HTTPException(status_code=404, detail="Patch not found")
+    return patch
 
 
 @router.get(

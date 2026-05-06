@@ -20,3 +20,4 @@ backend/data/
 dist/
 build/
 *.egg-info/
+/diagrams

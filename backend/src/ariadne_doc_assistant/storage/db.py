@@ -9,8 +9,16 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from ariadne_doc_assistant.connectors.models import ConnectionConfig
-from ariadne_doc_assistant.storage.orm import ConnectionORM, ProposalORM, TriggerEventORM
-from ariadne_doc_assistant.storage.models import Proposal
+from ariadne_doc_assistant.storage.models import ApprovalPolicy, DeliveryRun, DocumentationTarget, Proposal, ProposalPatch
+from ariadne_doc_assistant.storage.orm import (
+    ApprovalPolicyORM,
+    ConnectionORM,
+    DeliveryRunORM,
+    DocumentationTargetORM,
+    ProposalORM,
+    ProposalPatchORM,
+    TriggerEventORM,
+)
 
 
 class ProposalRepository:
@@ -22,9 +30,7 @@ class ProposalRepository:
         source_event = proposal_payload["source_event"]
         source_type = source_event.get("source_type", "unknown")
         event_context = source_event.get("context", {})
-        event_payload = {
-            key: value for key, value in source_event.items() if key not in {"source_type", "context"}
-        }
+        event_payload = {key: value for key, value in source_event.items() if key not in {"source_type", "context"}}
 
         created_at = self._parse_datetime(proposal.created_at)
         trigger_event = TriggerEventORM(
@@ -44,14 +50,7 @@ class ProposalRepository:
             draft_json=self._parse_json_document(proposal.draft_json),
             status=proposal.status,
         )
-
-        self.session.add(trigger_event)
-        self.session.add(proposal_record)
-        try:
-            self.session.commit()
-        except Exception:
-            self.session.rollback()
-            raise
+        self._commit_objects(trigger_event, proposal_record)
 
     def create_connection(self, connection: ConnectionConfig) -> ConnectionConfig:
         timestamp = datetime.now(UTC)
@@ -67,27 +66,134 @@ class ProposalRepository:
             created_at=timestamp,
             updated_at=timestamp,
         )
-        self.session.add(record)
-        try:
-            self.session.commit()
-        except IntegrityError:
-            self.session.rollback()
-            raise ValueError(f"Connection with id '{connection.id}' already exists")
-        except Exception:
-            self.session.rollback()
-            raise
+        self._commit_objects(record, unique_error=f"Connection with id '{connection.id}' already exists")
         return self._to_connection_config(record)
 
     def get_connection(self, connection_id: str) -> ConnectionConfig | None:
         record = self.session.get(ConnectionORM, connection_id)
-        if record is None:
-            return None
-        return self._to_connection_config(record)
+        return None if record is None else self._to_connection_config(record)
 
     def list_connections(self, limit: int = 50) -> list[ConnectionConfig]:
         statement = select(ConnectionORM).order_by(ConnectionORM.created_at.desc()).limit(limit)
         records = self.session.execute(statement).scalars().all()
         return [self._to_connection_config(record) for record in records]
+
+    def create_documentation_target(self, target: DocumentationTarget) -> DocumentationTarget:
+        timestamp = datetime.now(UTC)
+        record = DocumentationTargetORM(
+            id=target.id,
+            name=target.name,
+            target_kind=target.target_kind,
+            storage_path=target.storage_path,
+            scope=target.scope,
+            config=target.config,
+            is_enabled=target.is_enabled,
+            created_at=timestamp,
+            updated_at=timestamp,
+        )
+        self._commit_objects(record, unique_error=f"Documentation target with id '{target.id}' already exists")
+        return self._to_documentation_target(record)
+
+    def get_documentation_target(self, target_id: str) -> DocumentationTarget | None:
+        record = self.session.get(DocumentationTargetORM, target_id)
+        return None if record is None else self._to_documentation_target(record)
+
+    def list_documentation_targets(self, limit: int = 50) -> list[DocumentationTarget]:
+        statement = select(DocumentationTargetORM).order_by(DocumentationTargetORM.created_at.desc()).limit(limit)
+        records = self.session.execute(statement).scalars().all()
+        return [self._to_documentation_target(record) for record in records]
+
+    def upsert_approval_policy(self, policy: ApprovalPolicy) -> ApprovalPolicy:
+        timestamp = datetime.now(UTC)
+        existing = self.session.get(ApprovalPolicyORM, policy.id)
+        if existing is None:
+            record = ApprovalPolicyORM(
+                id=policy.id,
+                target_id=policy.target_id,
+                review_required=policy.review_required,
+                auto_apply=policy.auto_apply,
+                allowed_scope=policy.allowed_scope,
+                is_enabled=policy.is_enabled,
+                created_at=timestamp,
+                updated_at=timestamp,
+            )
+            self._commit_objects(record)
+            return self._to_approval_policy(record)
+
+        existing.target_id = policy.target_id
+        existing.review_required = policy.review_required
+        existing.auto_apply = policy.auto_apply
+        existing.allowed_scope = policy.allowed_scope
+        existing.is_enabled = policy.is_enabled
+        existing.updated_at = timestamp
+        self._commit()
+        return self._to_approval_policy(existing)
+
+    def get_approval_policy(self, target_id: str) -> ApprovalPolicy | None:
+        statement = select(ApprovalPolicyORM).where(ApprovalPolicyORM.target_id == target_id)
+        record = self.session.execute(statement).scalar_one_or_none()
+        return None if record is None else self._to_approval_policy(record)
+
+    def create_patch(self, patch: ProposalPatch) -> ProposalPatch:
+        record = ProposalPatchORM(
+            id=patch.id,
+            proposal_id=patch.proposal_id,
+            target_id=patch.target_id,
+            target_path=patch.target_path,
+            patch_type=patch.patch_type,
+            summary=patch.summary,
+            current_content=patch.current_content,
+            proposed_content=patch.proposed_content,
+            diff_text=patch.diff_text,
+            status=patch.status,
+            created_at=self._parse_datetime(patch.created_at),
+            approved_at=self._parse_datetime(patch.approved_at) if patch.approved_at else None,
+            applied_at=self._parse_datetime(patch.applied_at) if patch.applied_at else None,
+        )
+        self._commit_objects(record)
+        return self._to_patch(record)
+
+    def get_patch(self, patch_id: str) -> dict[str, Any] | None:
+        record = self.session.get(ProposalPatchORM, patch_id)
+        return None if record is None else self._to_patch(record).to_dict()
+
+    def list_patches(self, limit: int = 50) -> list[dict[str, Any]]:
+        statement = select(ProposalPatchORM).order_by(ProposalPatchORM.created_at.desc()).limit(limit)
+        records = self.session.execute(statement).scalars().all()
+        return [self._to_patch(record).to_dict() for record in records]
+
+    def update_patch_status(
+        self,
+        patch_id: str,
+        *,
+        status: str,
+        approved_at: str | None = None,
+        applied_at: str | None = None,
+    ) -> dict[str, Any] | None:
+        record = self.session.get(ProposalPatchORM, patch_id)
+        if record is None:
+            return None
+        record.status = status
+        if approved_at:
+            record.approved_at = self._parse_datetime(approved_at)
+        if applied_at:
+            record.applied_at = self._parse_datetime(applied_at)
+        self._commit()
+        return self._to_patch(record).to_dict()
+
+    def create_delivery_run(self, delivery: DeliveryRun) -> DeliveryRun:
+        record = DeliveryRunORM(
+            id=delivery.id,
+            patch_id=delivery.patch_id,
+            target_id=delivery.target_id,
+            status=delivery.status,
+            mode=delivery.mode,
+            details=delivery.details or {},
+            created_at=self._parse_datetime(delivery.created_at),
+            completed_at=self._parse_datetime(delivery.completed_at) if delivery.completed_at else None,
+        )
+        self._commit_objects(record)
+        return self._to_delivery_run(record)
 
     def get_proposal(self, proposal_id: str) -> dict[str, Any] | None:
         statement = (
@@ -99,7 +205,11 @@ class ProposalRepository:
         if row is None:
             return None
         proposal, trigger_event = row
-        return self._to_dict(proposal, trigger_event)
+        payload = self._to_proposal_dict(proposal, trigger_event)
+        patch = self._latest_patch_for_proposal(proposal.id)
+        if patch is not None:
+            payload["patch"] = patch.to_dict()
+        return payload
 
     def list_proposals(self, limit: int = 20) -> list[dict[str, Any]]:
         statement = (
@@ -109,9 +219,26 @@ class ProposalRepository:
             .limit(limit)
         )
         rows = self.session.execute(statement).all()
-        return [self._to_dict(proposal, trigger_event) for proposal, trigger_event in rows]
+        payloads: list[dict[str, Any]] = []
+        for proposal, trigger_event in rows:
+            payload = self._to_proposal_dict(proposal, trigger_event)
+            patch = self._latest_patch_for_proposal(proposal.id)
+            if patch is not None:
+                payload["patch"] = patch.to_dict()
+            payloads.append(payload)
+        return payloads
 
-    def _to_dict(self, proposal: ProposalORM, trigger_event: TriggerEventORM) -> dict[str, Any]:
+    def _latest_patch_for_proposal(self, proposal_id: str) -> ProposalPatch | None:
+        statement = (
+            select(ProposalPatchORM)
+            .where(ProposalPatchORM.proposal_id == proposal_id)
+            .order_by(ProposalPatchORM.created_at.desc())
+            .limit(1)
+        )
+        record = self.session.execute(statement).scalar_one_or_none()
+        return None if record is None else self._to_patch(record)
+
+    def _to_proposal_dict(self, proposal: ProposalORM, trigger_event: TriggerEventORM) -> dict[str, Any]:
         source_event = {
             "source_type": trigger_event.source_type,
             **trigger_event.payload,
@@ -147,3 +274,80 @@ class ProposalRepository:
             secret_ref=record.secret_ref,
             is_enabled=record.is_enabled,
         )
+
+    def _to_documentation_target(self, record: DocumentationTargetORM) -> DocumentationTarget:
+        return DocumentationTarget(
+            id=record.id,
+            name=record.name,
+            target_kind=record.target_kind,
+            storage_path=record.storage_path,
+            scope=record.scope,
+            config=record.config,
+            is_enabled=record.is_enabled,
+        )
+
+    def _to_approval_policy(self, record: ApprovalPolicyORM) -> ApprovalPolicy:
+        return ApprovalPolicy(
+            id=record.id,
+            target_id=record.target_id,
+            review_required=record.review_required,
+            auto_apply=record.auto_apply,
+            allowed_scope=record.allowed_scope,
+            is_enabled=record.is_enabled,
+        )
+
+    def _to_patch(self, record: ProposalPatchORM) -> ProposalPatch:
+        return ProposalPatch(
+            id=record.id,
+            proposal_id=record.proposal_id,
+            target_id=record.target_id,
+            target_path=record.target_path,
+            patch_type=record.patch_type,
+            summary=record.summary,
+            current_content=record.current_content,
+            proposed_content=record.proposed_content,
+            diff_text=record.diff_text,
+            status=record.status,
+            created_at=record.created_at.astimezone(UTC).isoformat().replace("+00:00", "Z"),
+            approved_at=record.approved_at.astimezone(UTC).isoformat().replace("+00:00", "Z")
+            if record.approved_at
+            else None,
+            applied_at=record.applied_at.astimezone(UTC).isoformat().replace("+00:00", "Z")
+            if record.applied_at
+            else None,
+        )
+
+    def _to_delivery_run(self, record: DeliveryRunORM) -> DeliveryRun:
+        return DeliveryRun(
+            id=record.id,
+            patch_id=record.patch_id,
+            target_id=record.target_id,
+            status=record.status,
+            mode=record.mode,
+            created_at=record.created_at.astimezone(UTC).isoformat().replace("+00:00", "Z"),
+            completed_at=record.completed_at.astimezone(UTC).isoformat().replace("+00:00", "Z")
+            if record.completed_at
+            else None,
+            details=record.details,
+        )
+
+    def _commit_objects(self, *objects: Any, unique_error: str | None = None) -> None:
+        for obj in objects:
+            self.session.add(obj)
+        try:
+            self.session.commit()
+        except IntegrityError:
+            self.session.rollback()
+            if unique_error is not None:
+                raise ValueError(unique_error)
+            raise
+        except Exception:
+            self.session.rollback()
+            raise
+
+    def _commit(self) -> None:
+        try:
+            self.session.commit()
+        except Exception:
+            self.session.rollback()
+            raise

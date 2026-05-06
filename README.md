@@ -35,7 +35,7 @@ Default mode. Only the built-in Git connector is active. The app can generate pr
 
 ### Production-integrated mode
 
-Optional mode. Private connector plugins can be mounted at runtime through `APP_PLUGIN_PATH`. Stub connector modules for systems such as Confluence and ServiceNow are included only as safe examples in the public repository. In a company environment, the same core service can be deployed with private connectors, token-based API access, service credentials with scoped permissions, and organization-specific integration logic.
+Optional mode. Private connector plugins can be mounted at runtime through `APP_PLUGIN_PATH`. In a company environment, the same core service can be deployed with private connectors, token-based API access, service credentials with scoped permissions, and organization-specific integration logic.
 
 ## Threat model summary
 
@@ -146,7 +146,42 @@ cd scripts
 .\run_docker.ps1
 ```
 
-### 3. Trigger example using `curl`
+### 3. Local target demo flow
+
+Create a local documentation target:
+
+```bash
+curl -X POST http://localhost:8000/documentation-targets \
+  -H "Content-Type: application/json" \
+  -d '{
+    "id": "local-api-doc",
+    "name": "Local API documentation",
+    "target_kind": "local_docs",
+    "storage_path": "sample_docs/api.md",
+    "scope": "page",
+    "config": {
+      "component": "backend",
+      "match_any_prefixes": ["docs/", "backend/src/ariadne_doc_assistant/api/"],
+      "repository": "org/repo"
+    },
+    "is_enabled": true
+  }'
+```
+
+Create a policy for that target:
+
+```bash
+curl -X POST http://localhost:8000/documentation-targets/local-api-doc/policy \
+  -H "Content-Type: application/json" \
+  -d '{
+    "review_required": true,
+    "auto_apply": false,
+    "allowed_scope": "page",
+    "is_enabled": true
+  }'
+```
+
+### 4. Trigger example using `curl`
 
 Create a stored GitHub source connection:
 
@@ -207,7 +242,7 @@ Invoke-RestMethod -Method Post -Uri "http://localhost:8000/trigger" -ContentType
 `POST /trigger/git` remains available as a compatibility route for direct Git-only requests.
 Relative `repo_path` values are resolved from the Ariadne project root. Use an absolute path if you want to target a repository outside this project tree.
 
-Example of the second trigger source stub:
+Example of the built-in generic webhook trigger:
 
 ```bash
 curl -X POST http://localhost:8000/trigger \
@@ -256,7 +291,18 @@ curl -X POST http://localhost:8000/webhooks/github/github-main \
   }'
 ```
 
-### 4. Run tests
+After a proposal is generated, approve and apply the resulting local patch:
+
+```bash
+curl -X POST http://localhost:8000/patches/<patch-id>/approve
+curl -X POST http://localhost:8000/patches/<patch-id>/apply
+```
+
+The local target content is then updated in `sample_docs/api.md`.
+
+If no existing documentation target matches the incoming event, Ariadne creates a new generated local target under `sample_docs/generated/` and prepares a patch with `patch_type = create`.
+
+### 5. Run tests
 
 ```bash
 cd backend
@@ -265,8 +311,9 @@ pytest
 
 ## Storage locations
 
-- PostgreSQL tables: `connections`, `trigger_events`, and `proposals`
+- PostgreSQL tables: `connections`, `trigger_events`, `proposals`, `documentation_targets`, `approval_policies`, `proposal_patches`, and `delivery_runs`
 - Generated proposal files: `output/proposals/<proposal-id>.md` and `output/proposals/<proposal-id>.json`
+- Local demo documentation target: `sample_docs/api.md`
 
 The database connection and output directory can be overridden with environment variables:
 
