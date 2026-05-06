@@ -1,40 +1,54 @@
 # Architecture
 
-## Overview
+## Current Scope
 
-The current Ariadne implementation is a single FastAPI service with a modular internal structure. It is intended as the first operational, production-oriented version of a broader connector-based system that can run both in standalone local mode and in an integrated production environment.
+Ariadne is a connector-oriented documentation maintenance system. The current repository contains its first local-first backend implementation.
 
-- `api/` exposes HTTP endpoints.
-- `core/` owns the proposal pipeline, redaction, and document-safe helpers.
-- `connectors/` exposes built-in connectors and a registry for private plugins.
-- `llm/` provides an abstraction for future LLM providers.
-- `storage/` persists trigger events, proposals, documentation targets, approval policies, patches, and delivery runs in PostgreSQL through SQLAlchemy.
-- `utils/` contains runtime helpers such as plugin loading and time utilities.
+This implementation establishes the core workflow that later external connectors should reuse: local change events are normalized, sensitive content is redacted, relevant documentation targets are selected, reviewable documentation update proposals are generated, candidate patches are stored in PostgreSQL, and approved patches can be applied to local Markdown files.
 
-The architecture separates the core proposal workflow from source and target integrations. This allows the same service to be used locally with only built-in components, while also making it possible to connect organization-specific platforms later through private connectors.
+## Main Modules
 
-## Request flow
+- `api/`: HTTP routes for triggers, documentation targets, policies, proposals, and patches.
+- `core/`: proposal pipeline, redaction helpers, proposal rendering, and patch rendering.
+- `connectors/`: local Git source connector, generic local webhook stub, local Markdown target connector, and connector interfaces for future extensions.
+- `locator/`: simple local documentation target selection based on component and changed file prefixes.
+- `llm/`: deterministic placeholder LLM layer. This is the future integration point for ChatGPT API usage.
+- `storage/`: PostgreSQL-backed persistence through SQLAlchemy and Alembic.
 
-1. `POST /trigger` receives a normalized trigger envelope with `source_type`, `payload`, and optional context.
-2. In the current implementation, `source_type="git"` dispatches to the Git connector, which computes changed files and a unified diff.
-3. Redaction policies sanitize the diff and request context.
-4. The pipeline normalizes the event into an internal artifact bundle, resolves a local documentation target, and constructs a deterministic proposal plus a concrete patch.
-5. The proposal, patch, and related workflow records are stored in PostgreSQL. Proposal files are also written to disk as Markdown and JSON.
-6. The API returns the stored proposal record with the associated patch.
+## Request Flow
 
-`POST /trigger/git` remains available as a compatibility endpoint for direct Git-specific requests.
+1. `POST /trigger` receives a local event envelope with `source_type`, `payload`, and optional `context`.
+2. `source_type="git"` computes changed files and a unified diff from a local repository.
+3. `source_type="webhook"` accepts an already summarized local event payload.
+4. The pipeline normalizes the event into an `ArtifactBundle`.
+5. Redaction removes common secret patterns from text and structured data.
+6. The local locator tries to match the event to a `DocumentationTarget`.
+7. If no target matches, a generated local target is created under `sample_docs/generated/`.
+8. `DummyLLM` creates deterministic draft guidance from sanitized input.
+9. The proposal and candidate patch are stored in PostgreSQL.
+10. Proposal files are also written to `output/proposals/`.
+11. A reviewer can approve and apply the patch to local Markdown documentation.
 
-## Module boundaries
+## Data Model
 
-- API modules should not perform Git or database operations directly.
-- Connector modules should not contain persistence logic.
-- Redaction should happen before logging, before persistence, and before LLM calls.
-- Protected block handling is isolated so future document update workflows can preserve human-managed sections.
+Current PostgreSQL tables:
 
-## Extensibility
+- `connections`
+- `trigger_events`
+- `proposals`
+- `documentation_targets`
+- `approval_policies`
+- `proposal_patches`
+- `delivery_runs`
 
-- Additional connectors can be registered at runtime from `APP_PLUGIN_PATH`.
-- The LLM interface is provider-agnostic and defaults to `DummyLLM`.
-- Public local adapters are included for standalone demonstration. Production source or target integrations are expected to be supplied as private connectors.
-- The same core service is designed to run with private source or target connectors in a production deployment.
-- The internal proposal representation remains platform-neutral so it can later be transformed for different documentation systems.
+The `connections` table stores generic source or target connector configuration metadata. It is part of the connector-oriented final architecture, even though external connector execution is not implemented in the current stage.
+
+## Extension Points
+
+The code keeps connector and LLM boundaries because they are useful for the thesis direction:
+
+- Future source connectors can normalize external events into `ArtifactBundle`.
+- Future target connectors can write proposals to external documentation systems.
+- Future LLM providers can replace `DummyLLM` behind the same interface.
+
+These extension points keep the first implementation aligned with the planned final system while allowing the current stage to remain reproducible and local.

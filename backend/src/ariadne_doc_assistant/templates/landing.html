@@ -29,9 +29,9 @@
       <div class="headline">
         <h1>Ariadne</h1>
         <p>
-          Artifact-connected documentation assistant for reducing documentation drift.
-          The service accepts change events, analyzes affected artifacts, applies redaction,
-          and generates reviewable documentation update proposals.
+          Connector-oriented documentation maintenance system for reducing documentation
+          drift. The current implementation accepts local change events, applies redaction,
+          and generates reviewable Markdown documentation update proposals.
         </p>
         <div class="actions">
           <a class="primary" href="/openapi">Open API</a>
@@ -52,14 +52,15 @@
         <ul>
           <li><code>POST /trigger</code> for normalized trigger envelopes</li>
           <li><code>POST /trigger/git</code> for direct Git-based triggering</li>
+          <li><code>POST /patches/{id}/approve</code> for review decisions</li>
           <li><code>GET /proposals</code> to inspect stored proposals</li>
         </ul>
       </article>
       <article class="card">
         <h2>Operating Model</h2>
         <p>
-          The current public implementation is Git-first, proposal-oriented, and designed
-          to run both locally and in a production deployment with external connectors later.
+          The current implementation is local-first and PostgreSQL-backed. External
+          platform connectors are planned extensions of the same architecture.
         </p>
       </article>
     </section>

@@ -7,7 +7,6 @@ from typing import Any
 from uuid import uuid4
 
 from ariadne_doc_assistant.config import Settings
-from ariadne_doc_assistant.connectors.github_source import GitHubSourceConnector
 from ariadne_doc_assistant.connectors.git_repo import GitRepositoryConnector
 from ariadne_doc_assistant.connectors.local_docs_target import LocalDocsTargetConnector
 from ariadne_doc_assistant.connectors.models import ArtifactBundle
@@ -30,7 +29,6 @@ class ProposalPipeline:
         self.settings = settings
         self.repository = repository
         self.git_connector = GitRepositoryConnector()
-        self.github_connector = GitHubSourceConnector()
         self.webhook_connector = WebhookStubConnector()
         self.local_docs_connector = LocalDocsTargetConnector(settings.project_root)
         self.locator = LocalContentLocator()
@@ -40,8 +38,6 @@ class ProposalPipeline:
         normalized_source = source_type.strip().lower()
         if normalized_source == "git":
             return self.run_git_trigger(event)
-        if normalized_source == "github":
-            return self.run_github_trigger(event)
         if normalized_source == "webhook":
             return self.run_webhook_trigger(event)
         raise ValueError(f"Unsupported trigger source_type: {source_type}")
@@ -62,16 +58,6 @@ class ProposalPipeline:
         normalized_event = self.webhook_connector.normalize_event(event)
         bundle = self.webhook_connector.collect_artifacts(normalized_event)
         logger.info("Processing webhook trigger from %s", bundle.metadata.get("source_name", "external webhook"))
-        return self.run_artifact_bundle(bundle)
-
-    def run_github_trigger(self, event: dict[str, Any]) -> dict:
-        normalized_event = self.github_connector.normalize_event(event)
-        bundle = self.github_connector.collect_artifacts(normalized_event)
-        logger.info(
-            "Processing GitHub %s event for %s",
-            bundle.event_type,
-            bundle.metadata.get("repository", "unknown repository"),
-        )
         return self.run_artifact_bundle(bundle)
 
     def run_artifact_bundle(self, bundle: ArtifactBundle) -> dict[str, Any]:
@@ -337,7 +323,7 @@ class ProposalPipeline:
         ]
         if any("api" in file_path.lower() for file_path in files):
             actions.append("Verify endpoint descriptions, request examples, and response formats against the new API behavior.")
-        if any(file_path.lower().endswith(("readme.md", ".env.example", "docker-compose.yml")) for file_path in files):
+        if any(file_path.lower().endswith(("readme.md", ".env-template", "docker-compose.yml")) for file_path in files):
             actions.append("Check setup and deployment instructions for command, configuration, or environment changes.")
         ticket_id = source_event.get("context", {}).get("ticket_id")
         if ticket_id:

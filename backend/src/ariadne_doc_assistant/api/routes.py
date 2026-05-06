@@ -4,13 +4,12 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from sqlalchemy.orm import Session
 
 from ariadne_doc_assistant.config import settings
-from ariadne_doc_assistant.connectors.github_source import GitHubSourceConnector
 from ariadne_doc_assistant.connectors.models import ConnectionConfig
 from ariadne_doc_assistant.core.pipeline import ProposalPipeline
 from ariadne_doc_assistant.storage.db import ProposalRepository
@@ -169,16 +168,16 @@ class ConnectionCreateRequest(BaseModel):
     model_config = ConfigDict(
         json_schema_extra={
             "example": {
-                "id": "github-main",
-                "name": "GitHub main repository",
-                "connector_kind": "github",
+                "id": "future-source",
+                "name": "Future source connector",
+                "connector_kind": "future_source",
                 "role": "source",
-                "base_url": "https://api.github.com",
+                "base_url": "https://example.invalid",
                 "config": {
                     "repository": "org/repo",
-                    "webhook_secret_ref": "github-webhook-secret",
+                    "notes": "Stored for future connector implementation",
                 },
-                "secret_ref": "github-token",
+                "secret_ref": "future-token-ref",
                 "is_enabled": True,
             }
         }
@@ -286,34 +285,6 @@ class ProposalPatchResponse(BaseModel):
     applied_at: str | None = None
 
 
-class GitHubWebhookRequest(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        json_schema_extra={
-            "example": {
-                "ref": "refs/heads/main",
-                "before": "1111111111111111111111111111111111111111",
-                "after": "2222222222222222222222222222222222222222",
-                "compare": "https://github.com/org/repo/compare/111...222",
-                "repository": {
-                    "name": "repo",
-                    "full_name": "org/repo",
-                },
-                "head_commit": {
-                    "message": "Update API validation docs",
-                },
-                "commits": [
-                    {
-                        "id": "2222222222222222222222222222222222222222",
-                        "message": "Update API validation docs",
-                        "modified": ["docs/api.md", "backend/src/ariadne_doc_assistant/api/routes.py"],
-                    }
-                ],
-            }
-        },
-    )
-
-
 def get_repository(session: Session = Depends(get_db_session)) -> ProposalRepository:
     return ProposalRepository(session)
 
@@ -322,10 +293,6 @@ def get_pipeline(
     repo: ProposalRepository = Depends(get_repository),
 ) -> ProposalPipeline:
     return ProposalPipeline(settings=settings, repository=repo)
-
-
-def get_github_source_connector() -> GitHubSourceConnector:
-    return GitHubSourceConnector()
 
 
 @router.get("/", include_in_schema=False, response_class=HTMLResponse)
@@ -380,7 +347,10 @@ def trigger(
     "/connections",
     tags=["Connections"],
     summary="Create a stored connector configuration",
-    description="Creates a persisted source or target connection configuration that can later be referenced by webhook or delivery routes.",
+    description=(
+        "Creates a generic source or target connector configuration record. "
+        "External connector execution is future work; this endpoint only stores metadata."
+    ),
     response_model=ConnectionResponse,
 )
 def create_connection(
@@ -397,8 +367,7 @@ def create_connection(
 @router.get(
     "/connections",
     tags=["Connections"],
-    summary="List stored connections",
-    description="Returns stored source and target connection configurations.",
+    summary="List stored connector configurations",
     response_model=list[ConnectionResponse],
 )
 def list_connections(
@@ -411,8 +380,7 @@ def list_connections(
 @router.get(
     "/connections/{connection_id}",
     tags=["Connections"],
-    summary="Get one stored connection",
-    description="Returns a stored connection configuration by identifier.",
+    summary="Get one stored connector configuration",
     response_model=ConnectionResponse,
 )
 def get_connection(
@@ -524,41 +492,6 @@ def get_target_policy(
     if policy is None:
         raise HTTPException(status_code=404, detail="Approval policy not found")
     return policy.to_dict()
-
-
-@router.post(
-    "/webhooks/github/{connection_id}",
-    tags=["Triggers"],
-    summary="Receive a GitHub webhook and generate a proposal",
-    description="Accepts a GitHub webhook payload, normalizes it into the internal artifact bundle, and generates a documentation proposal.",
-    response_model=ProposalResponse,
-)
-def github_webhook(
-    connection_id: str,
-    request: Request,
-    payload: GitHubWebhookRequest,
-    repo: ProposalRepository = Depends(get_repository),
-    pipeline: ProposalPipeline = Depends(get_pipeline),
-    connector: GitHubSourceConnector = Depends(get_github_source_connector),
-):
-    try:
-        connection = repo.get_connection(connection_id)
-        if connection is None:
-            raise HTTPException(status_code=404, detail="Connection not found")
-        connector.validate_config(connection)
-        normalized_event = connector.normalize_event(
-            {
-                **payload.model_dump(),
-                "_github_event_type": request.headers.get("X-GitHub-Event"),
-                "_github_delivery_id": request.headers.get("X-GitHub-Delivery"),
-                "connection_id": connection_id,
-            },
-            connection=connection,
-        )
-        bundle = connector.collect_artifacts(normalized_event, connection=connection)
-        return pipeline.run_artifact_bundle(bundle)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.get(

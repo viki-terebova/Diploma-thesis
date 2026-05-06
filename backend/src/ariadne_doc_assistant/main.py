@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 OPENAPI_TAGS = [
     {
         "name": "Connections",
-        "description": "Endpoints for creating and retrieving stored source or target connector configurations.",
+        "description": "Endpoints for storing future source or target connector configuration.",
     },
     {
         "name": "Targets",

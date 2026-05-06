@@ -3,14 +3,13 @@
 ## Security goals
 
 - Prevent secrets from being committed, logged, or emitted in proposal drafts.
-- Keep the open-source repository runnable without proprietary dependencies.
-- Allow enterprise-specific integrations to remain private and optional.
+- Keep the repository runnable without proprietary dependencies.
+- Keep future external integrations optional and separated from the local-first core until they are intentionally implemented.
 
 ## Assumptions
 
-- The Ariadne backend runs either in a controlled local environment or in a controlled production deployment.
+- The Ariadne backend currently runs in a controlled local development environment.
 - Git diffs may contain sensitive strings.
-- Operators may configure enterprise connectors through environment variables and private plugins.
 - Human review is required before any documentation is published.
 
 ## Main risks
@@ -44,19 +43,19 @@ Mitigation:
 - The default provider is local and deterministic
 - External providers are optional and disabled by default
 
-### Unsafe enterprise coupling
+### Premature external integration coupling
 
-Risk: the public repository requires vendor SDKs, enterprise endpoints, or private configuration.
+Risk: the first implementation starts depending on vendor SDKs, external endpoints, or private configuration before the core workflow is stable.
 
 Mitigation:
 
-- Public repo ships only interfaces and stubs
-- Private plugins are mounted dynamically using `APP_PLUGIN_PATH`
-- Integrated production deployment is opt-in and organization-specific
+- The current runtime ships only local source and target flows.
+- Future connector work is documented separately from the currently implemented local-first core.
+- External integrations should be optional and added only after local evaluation is stable.
 
-## RBAC concept
+## Future RBAC concept
 
-The current implementation does not implement full RBAC, but the intended production model is:
+The current implementation does not implement RBAC. A possible future production model is:
 
 - Service runtime identity has read access only to the minimum required systems.
 - Connector-specific credentials are scoped per system.

@@ -1,68 +1,81 @@
-# Ariadne (ariadne-doc-assistant)
+# Ariadne
 
-<img src="assets/ariadne-logo-dark.png" alt="Ariadne logo" width="220">
+Ariadne is a connector-oriented system for automated technical documentation maintenance using large language models.
 
-Ariadne is an artifact-connected documentation assistant for reducing documentation drift.
+This repository contains the first local-first implementation of Ariadne. It provides the core workflow of the final system in a reproducible environment: change ingestion, event normalization, sensitive-content redaction, documentation target selection, proposal generation, candidate documentation patches, approval, and local Markdown application.
 
-This repository contains the first operational version of Ariadne, a diploma thesis project focused on reducing documentation drift. Ariadne listens for a change event, computes a diff, applies redaction policies, and generates documentation update proposals in both Markdown and JSON. The public repository remains open-source-safe, while the same codebase and architecture are intended to support production deployment with private connectors, authenticated APIs, and organization-specific integration logic.
-
-## Branding
-
-The product is called **Ariadne**, but the Python module is **`ariadne_doc_assistant`** to avoid conflict with the existing `ariadne` GraphQL library.
-
-- Product name: `Ariadne`
-- GitHub repo name: `ariadne-doc-assistant`
-- Python package/import path: `ariadne_doc_assistant`
-- CLI/docs command name: `ariadne-doc`
-
-See [docs/branding.md](docs/branding.md) and [assets/brand.md](assets/brand.md) for naming and asset rules.
+External platform connectors such as GitHub, GitLab, Confluence, Jira, ServiceNow, Notion, and internal wiki integrations are planned extensions of the same architecture. They are not implemented in the current stage.
 
 ## Current Implementation Scope
 
-- FastAPI backend in Python 3.11+
-- PostgreSQL-only persistence managed through Alembic migrations
-- Git-based trigger flow in the first operational version
-- Proposal generation written to `output/proposals/`
-- Deterministic drafting with a `DummyLLM` abstraction
-- Redaction applied to logs, proposal outputs, and text sent to the LLM interface
-- Runtime plugin loading from `APP_PLUGIN_PATH`
+Implemented:
 
-## Operating Contexts
+- FastAPI backend in Python.
+- PostgreSQL persistence through SQLAlchemy and Alembic.
+- Local Git diff trigger.
+- Generic local webhook-style trigger.
+- Markdown documentation target under `sample_docs/`.
+- Deterministic `DummyLLM` layer as a placeholder for future ChatGPT API integration.
+- Redaction of common secret patterns before proposal generation and storage.
+- Candidate documentation patch with current content, proposed content, and diff.
+- Approval and local apply endpoints.
+- Generic connection records for future connector configuration.
+- Focused tests for redaction, protected blocks, local triggers, proposals, patches, and apply flow.
 
-### Standalone local mode
+Not implemented yet:
 
-Default mode. Only the built-in Git connector is active. The app can generate proposal drafts from local Git diffs without any proprietary systems or secrets. This mode is intended for local development, testing, evaluation, and open-source reproducibility.
+- Real ChatGPT API integration.
+- GitHub API integration.
+- Confluence/Jira/ServiceNow or other enterprise connectors.
+- Full UI.
+- Semantic documentation search or embeddings.
+- Enterprise authentication, RBAC, audit, or secret management.
 
-### Production-integrated mode
+## Repository Structure
 
-Optional mode. Private connector plugins can be mounted at runtime through `APP_PLUGIN_PATH`. In a company environment, the same core service can be deployed with private connectors, token-based API access, service credentials with scoped permissions, and organization-specific integration logic.
+```text
+backend/
+  src/ariadne_doc_assistant/
+    api/          FastAPI routes
+    core/         proposal pipeline, redaction, patch generation
+    connectors/   local Git, local webhook stub, local Markdown target, connector interfaces
+    locator/      local documentation target selection
+    llm/          deterministic placeholder LLM layer
+    storage/      PostgreSQL models and repository
+    templates/    minimal landing page
+    static/       landing page styles
+  tests/          backend tests
+  alembic/        database migrations
 
-## Threat model summary
+docs/             architecture, local flow, evaluation plan, roadmap
+sample_docs/      local Markdown documentation used by the current implementation
+scripts/          shell helpers for local or Docker runs
+output/           generated proposals, ignored by git
+```
 
-- Secrets must never be committed. Use `.env.example` as the template and keep real values in untracked `.env` files or platform secret stores.
-- Logs are redacted using regex rules and environment-derived secret values.
-- Proposal drafts are redacted before they are persisted or written to disk.
-- Any text passed to the LLM interface is redacted first, even when using the default dummy provider.
-- Protected documentation blocks marked with `<!-- PROTECTED:START -->` and `<!-- PROTECTED:END -->` are reserved for future update flows and must not be modified by automated documentation rewrites.
-
-## Deployment Intent
-
-The target system is broader than the currently implemented public version. Ariadne is designed as a connector-based service that should work in two practical contexts:
-
-- locally, as a standalone environment for development, testing, and thesis evaluation
-- in production, as an integrated service connected to the platforms used by a specific team or company
-
-The current codebase therefore represents a production-oriented first version of the larger system architecture. Its implemented trigger is Git-first, but its outputs are platform-neutral and its connector model is intended to support additional source and target platforms later.
-
-## Quickstart
-
-### Requirements
+## Requirements
 
 - Python 3.11+
 - Git
 - Docker and Docker Compose
+- PostgreSQL, provided by `docker-compose.yml` for local development
 
-### 1. Local run with `venv`
+## Configuration
+
+Use `.env-template` as the local configuration template. Keep real `.env` files untracked.
+
+Important variables:
+
+- `APP_HOST`
+- `APP_PORT`
+- `APP_LOG_LEVEL`
+- `POSTGRES_DATABASE_URL`
+- `APP_OUTPUT_DIR`
+- `APP_LLM_PROVIDER`
+
+The current supported local LLM provider is `dummy`.
+
+## Run Locally
 
 From the repository root:
 
@@ -77,41 +90,12 @@ alembic upgrade head
 uvicorn ariadne_doc_assistant.main:app --reload --port 8000
 ```
 
-If Docker is not available, you can use any existing PostgreSQL instance. Create a database and user, then point `POSTGRES_DATABASE_URL` at it before running Alembic.
+The API is available at:
 
-Example SQL:
+- landing page: `http://localhost:8000/`
+- OpenAPI docs: `http://localhost:8000/openapi`
 
-```sql
-CREATE USER ariadne_user WITH PASSWORD 'ariadne_db_password';
-CREATE DATABASE ariadne_db OWNER ariadne_user;
-```
-
-Example connection string:
-
-```bash
-export POSTGRES_DATABASE_URL=postgresql+psycopg://ariadne_user:ariadne_db_password@localhost:5433/ariadne_db
-```
-
-Windows PowerShell:
-
-```powershell
-cd scripts
-.\run_local.ps1
-```
-
-Windows PowerShell manual alternative:
-
-```powershell
-cd backend
-py -3.11 -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install --upgrade pip
-pip install -e .[dev]
-alembic upgrade head
-uvicorn ariadne_doc_assistant.main:app --reload --port 8000
-```
-
-### 2. Docker Compose run
+## Docker Compose
 
 From the repository root:
 
@@ -119,34 +103,9 @@ From the repository root:
 docker compose up --build
 ```
 
-If this fails with an error mentioning `dockerDesktopLinuxEngine` or `//./pipe/dockerDesktopLinuxEngine`, Docker Desktop is not running. Start Docker Desktop first and wait until the engine is available.
+This starts PostgreSQL and the Ariadne backend.
 
-### Database initialization
-
-After PostgreSQL is running and `POSTGRES_DATABASE_URL` points to the correct database, initialize the schema from the `backend/` directory:
-
-```bash
-alembic upgrade head
-```
-
-Useful Alembic commands:
-
-```bash
-alembic current
-alembic history
-alembic downgrade -1
-```
-
-If `alembic upgrade head` fails with `password authentication failed`, PostgreSQL is running but the username, password, or database name in `POSTGRES_DATABASE_URL` does not match the actual server configuration. If you already have a local PostgreSQL server on `localhost:5432`, use the Docker-mapped port `localhost:5433` for this project.
-
-Windows PowerShell from `scripts/`:
-
-```powershell
-cd scripts
-.\run_docker.ps1
-```
-
-### 3. Local target demo flow
+## Local Workflow
 
 Create a local documentation target:
 
@@ -161,14 +120,13 @@ curl -X POST http://localhost:8000/documentation-targets \
     "scope": "page",
     "config": {
       "component": "backend",
-      "match_any_prefixes": ["docs/", "backend/src/ariadne_doc_assistant/api/"],
-      "repository": "org/repo"
+      "match_any_prefixes": ["backend/src/ariadne_doc_assistant/api/"]
     },
     "is_enabled": true
   }'
 ```
 
-Create a policy for that target:
+Create an approval policy:
 
 ```bash
 curl -X POST http://localhost:8000/documentation-targets/local-api-doc/policy \
@@ -181,27 +139,7 @@ curl -X POST http://localhost:8000/documentation-targets/local-api-doc/policy \
   }'
 ```
 
-### 4. Trigger example using `curl`
-
-Create a stored GitHub source connection:
-
-```bash
-curl -X POST http://localhost:8000/connections \
-  -H "Content-Type: application/json" \
-  -d '{
-    "id": "github-main",
-    "name": "GitHub main repository",
-    "connector_kind": "github",
-    "role": "source",
-    "base_url": "https://api.github.com",
-    "config": {
-      "repository": "org/repo"
-    },
-    "is_enabled": true
-  }'
-```
-
-Run this from the repository root while the service is running:
+Trigger a local Git diff proposal:
 
 ```bash
 curl -X POST http://localhost:8000/trigger \
@@ -220,29 +158,7 @@ curl -X POST http://localhost:8000/trigger \
   }'
 ```
 
-Windows PowerShell:
-
-```powershell
-$body = @{
-  source_type = "git"
-  payload = @{
-    repo_path = "."
-    from_ref = "HEAD~1"
-    to_ref = "HEAD"
-  }
-  context = @{
-    component = "backend"
-    ticket_id = "DOC-123"
-  }
-} | ConvertTo-Json -Depth 4
-
-Invoke-RestMethod -Method Post -Uri "http://localhost:8000/trigger" -ContentType "application/json" -Body $body
-```
-
-`POST /trigger/git` remains available as a compatibility route for direct Git-only requests.
-Relative `repo_path` values are resolved from the Ariadne project root. Use an absolute path if you want to target a repository outside this project tree.
-
-Example of the built-in generic webhook trigger:
+Or trigger a simple local webhook-style event:
 
 ```bash
 curl -X POST http://localhost:8000/trigger \
@@ -250,117 +166,102 @@ curl -X POST http://localhost:8000/trigger \
   -d '{
     "source_type": "webhook",
     "payload": {
-      "source_name": "jira-webhook",
-      "changed_files": ["docs/architecture.md", "backend/src/ariadne_doc_assistant/api/routes.py"],
-      "summary": "Webhook-reported API and documentation change",
+      "source_name": "local-event",
+      "changed_files": ["backend/src/ariadne_doc_assistant/api/routes.py"],
+      "summary": "API route behavior changed",
       "diff_excerpt": "@@ -1 +1 @@\n- old\n+ new"
     },
     "context": {
-      "component": "docs",
+      "component": "backend",
       "ticket_id": "DOC-456"
     }
   }'
 ```
 
-Example of the stored GitHub webhook route:
-
-```bash
-curl -X POST http://localhost:8000/webhooks/github/github-main \
-  -H "Content-Type: application/json" \
-  -H "X-GitHub-Event: push" \
-  -H "X-GitHub-Delivery: delivery-123" \
-  -d '{
-    "ref": "refs/heads/main",
-    "before": "1111111111111111111111111111111111111111",
-    "after": "2222222222222222222222222222222222222222",
-    "compare": "https://github.com/org/repo/compare/111...222",
-    "repository": {
-      "name": "repo",
-      "full_name": "org/repo"
-    },
-    "head_commit": {
-      "message": "Update API validation docs"
-    },
-    "commits": [
-      {
-        "id": "2222222222222222222222222222222222222222",
-        "message": "Update API validation docs",
-        "modified": ["docs/api.md"]
-      }
-    ]
-  }'
-```
-
-After a proposal is generated, approve and apply the resulting local patch:
+Approve and apply the generated patch:
 
 ```bash
 curl -X POST http://localhost:8000/patches/<patch-id>/approve
 curl -X POST http://localhost:8000/patches/<patch-id>/apply
 ```
 
-The local target content is then updated in `sample_docs/api.md`.
+The local Markdown target is updated in `sample_docs/api.md`.
 
-If no existing documentation target matches the incoming event, Ariadne creates a new generated local target under `sample_docs/generated/` and prepares a patch with `patch_type = create`.
+If no matching target exists, Ariadne creates a generated local target under `sample_docs/generated/` and prepares a create patch.
 
-### 5. Run tests
+## Future Connector Configuration
+
+The backend keeps a generic `connections` table and `/connections` endpoints. These records are intended to store source or target connector configuration metadata for future connector work.
+
+They do not mean that an external connector is implemented today. The current executable flow uses local Git, local webhook-style input, and local Markdown output as the first implementation of the connector-oriented architecture.
+
+## Storage
+
+PostgreSQL tables:
+
+- `connections`
+- `trigger_events`
+- `proposals`
+- `documentation_targets`
+- `approval_policies`
+- `proposal_patches`
+- `delivery_runs`
+
+Generated proposal files are written to:
+
+```text
+output/proposals/
+```
+
+## Tests
+
+From `backend/`:
 
 ```bash
-cd backend
 pytest
 ```
 
-## Storage locations
-
-- PostgreSQL tables: `connections`, `trigger_events`, `proposals`, `documentation_targets`, `approval_policies`, `proposal_patches`, and `delivery_runs`
-- Generated proposal files: `output/proposals/<proposal-id>.md` and `output/proposals/<proposal-id>.json`
-- Local demo documentation target: `sample_docs/api.md`
-
-The database connection and output directory can be overridden with environment variables:
-
-- `POSTGRES_DATABASE_URL`
-- `APP_OUTPUT_DIR`
-
-## Configuration
-
-Copy `.env.example` to `.env` if needed and fill only non-secret local values. Sensitive values should come from environment variables or an external secret manager in production deployments.
-
-Notable environment variables:
-
-- `APP_HOST`
-- `APP_PORT`
-- `POSTGRES_DATABASE_URL`
-- `APP_OUTPUT_DIR`
-- `APP_LOG_LEVEL`
-- `APP_PLUGIN_PATH`
-- `APP_ENABLE_INTEGRATED_CONNECTORS`
-- `APP_LLM_PROVIDER`
-
-## Private Connector Model
-
-Private connector plugins can be added without modifying this repository:
-
-1. Create a private Python module directory.
-2. Set `APP_PLUGIN_PATH` to that directory.
-3. In a plugin module, import `register_connector` from `ariadne_doc_assistant.connectors.base` and register your connector class.
-
-The public repository does not ship any vendor SDKs, tokens, or proprietary connector logic. This separation keeps the public core reproducible while allowing the same service to be integrated with company platforms in production.
-
-## Development
-
-Install dependencies and run tests:
+If `pytest` is not on PATH, use the virtual environment Python:
 
 ```bash
-cd backend
-pip install -e .[dev]
-pytest
+./.venv/Scripts/python.exe -m pytest
 ```
 
-## Design notes
+On Windows, if pytest cannot access the default temp directory, run with an explicit base temp under the backend directory:
 
-- Proposal storage uses SQLAlchemy over PostgreSQL with Alembic migrations.
-- Proposal generation is deterministic so the repository remains runnable without an external LLM.
-- The `llm` package exists as an abstraction point for later providers such as LiteLLM or OpenAI-compatible backends.
-- The architecture is designed for both standalone local use and integrated production deployment through private connectors.
+```bash
+./.venv/Scripts/python.exe -m pytest --basetemp=.tmp_pytest_run
+```
+
+## What To Show On Project Seminar 1
+
+Useful current-system walkthrough:
+
+- Start PostgreSQL and the backend.
+- Open `/openapi`.
+- Register `sample_docs/api.md` as a local documentation target.
+- Send a local webhook or Git trigger.
+- Inspect the generated proposal and patch.
+- Approve and apply the patch.
+- Show the changed Markdown document.
+
+Do not claim yet:
+
+- real ChatGPT API generation,
+- working GitHub/Confluence/Jira integrations,
+- full semantic search,
+- enterprise access control,
+- finished evaluation on real projects.
+
+## Future Direction
+
+See:
+
+- `docs/demo-flow.md`
+- `docs/architecture.md`
+- `docs/future-roadmap.md`
+- `docs/future-connectors.md`
+- `docs/evaluation-plan.md`
 
 ## License
 
