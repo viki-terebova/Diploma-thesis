@@ -27,8 +27,6 @@ class Settings(BaseSettings):
         validation_alias="POSTGRES_DATABASE_URL",
     )
     output_dir: Path = Field(default=REPO_ROOT / "output" / "proposals", validation_alias="APP_OUTPUT_DIR")
-    plugin_path: Path | None = Field(default=None, validation_alias="APP_PLUGIN_PATH")
-    enable_integrated_connectors: bool = Field(default=False, validation_alias="APP_ENABLE_INTEGRATED_CONNECTORS")
     llm_provider: str = Field(default="dummy", validation_alias="APP_LLM_PROVIDER")
 
 

@@ -4,7 +4,6 @@ import json
 import logging
 from pathlib import Path
 from typing import Any
-from uuid import uuid4
 
 from ariadne_doc_assistant.config import Settings
 from ariadne_doc_assistant.connectors.git_repo import GitRepositoryConnector
@@ -12,12 +11,12 @@ from ariadne_doc_assistant.connectors.local_docs_target import LocalDocsTargetCo
 from ariadne_doc_assistant.connectors.models import ArtifactBundle
 from ariadne_doc_assistant.connectors.webhook_stub import WebhookStubConnector
 from ariadne_doc_assistant.locator.local import LocalContentLocator
-from ariadne_doc_assistant.core.policies import redact_data, redact_text
+from ariadne_doc_assistant.core.policies import mask_data, mask_text
 from ariadne_doc_assistant.core.proposals import build_local_docs_patch_content, build_patch, build_proposal
 from ariadne_doc_assistant.llm.client import get_llm_client
 from ariadne_doc_assistant.llm.prompts import build_prompt
 from ariadne_doc_assistant.storage.db import ProposalRepository
-from ariadne_doc_assistant.storage.models import ApprovalPolicy, DeliveryRun, DocumentationTarget, Proposal, ProposalPatch
+from ariadne_doc_assistant.storage.models import DocumentationTarget, Proposal, ProposalPatch
 from ariadne_doc_assistant.utils.time import utc_now_iso
 
 
@@ -62,17 +61,17 @@ class ProposalPipeline:
 
     def run_artifact_bundle(self, bundle: ArtifactBundle) -> dict[str, Any]:
         source_event = self._source_event_from_bundle(bundle)
-        redacted_event = redact_data(source_event)
-        diff_text = redact_text(bundle.diff_excerpt)
-        summary = redact_text(bundle.summary)
+        masked_event = mask_data(source_event)
+        diff_text = mask_text(bundle.diff_excerpt)
+        summary = mask_text(bundle.summary)
         affected_files = bundle.changed_files
         result = self._build_and_store_proposal(
-            source_event=redacted_event,
+            source_event=masked_event,
             affected_files=affected_files,
             diff_text=diff_text,
             diff_summary=summary,
             suggested_sections=self._suggest_sections(affected_files),
-            recommended_actions=self._build_recommended_actions(affected_files, summary, redacted_event),
+            recommended_actions=self._build_recommended_actions(affected_files, summary, masked_event),
         )
         patch_payload = self._build_and_store_patch(
             proposal=result,
@@ -173,27 +172,8 @@ class ProposalPipeline:
         )
         stored_patch = self.repository.create_patch(patch)
 
-        policy = self.repository.get_approval_policy(target.id)
-        if policy is None:
-            policy = self.repository.upsert_approval_policy(
-                ApprovalPolicy(
-                    id=f"policy-{target.id}",
-                    target_id=target.id,
-                    review_required=True,
-                    auto_apply=False,
-                    allowed_scope="review_only",
-                    is_enabled=True,
-                )
-            )
-
         patch_payload = stored_patch.to_dict()
         patch_payload["target"] = target.to_dict()
-        patch_payload["policy"] = policy.to_dict()
-
-        if policy.auto_apply and policy.is_enabled:
-            applied_patch = self.apply_patch(stored_patch.id, mode="auto")
-            if applied_patch is not None:
-                patch_payload = applied_patch
 
         return patch_payload
 
@@ -226,16 +206,6 @@ class ProposalPipeline:
                 is_enabled=True,
             )
         )
-        self.repository.upsert_approval_policy(
-            ApprovalPolicy(
-                id=f"policy-{target.id}",
-                target_id=target.id,
-                review_required=True,
-                auto_apply=False,
-                allowed_scope="page",
-                is_enabled=True,
-            )
-        )
         return target
 
     def approve_patch(self, patch_id: str) -> dict[str, Any] | None:
@@ -246,7 +216,13 @@ class ProposalPipeline:
         )
         return patch
 
-    def apply_patch(self, patch_id: str, mode: str = "manual") -> dict[str, Any] | None:
+    def reject_patch(self, patch_id: str) -> dict[str, Any] | None:
+        return self.repository.update_patch_status(
+            patch_id,
+            status="REJECTED",
+        )
+
+    def apply_patch(self, patch_id: str) -> dict[str, Any] | None:
         patch_payload = self.repository.get_patch(patch_id)
         if patch_payload is None:
             return None
@@ -254,15 +230,8 @@ class ProposalPipeline:
         if target is None:
             raise FileNotFoundError(f"Documentation target not found for patch {patch_id}")
 
-        if patch_payload["status"] not in {"APPROVED", "PROPOSED"}:
-            raise ValueError(f"Patch {patch_id} is not in an applicable state")
-
-        if patch_payload["status"] == "PROPOSED":
-            patch_payload = self.repository.update_patch_status(
-                patch_id,
-                status="APPROVED",
-                approved_at=utc_now_iso(),
-            ) or patch_payload
+        if patch_payload["status"] != "APPROVED":
+            raise ValueError(f"Patch {patch_id} must be approved before it can be applied")
 
         self.local_docs_connector.apply_patch(
             ProposalPatch(
@@ -281,18 +250,6 @@ class ProposalPipeline:
                 applied_at=patch_payload.get("applied_at"),
             ),
             target,
-        )
-        self.repository.create_delivery_run(
-            DeliveryRun(
-                id=str(uuid4()),
-                patch_id=patch_id,
-                target_id=target.id,
-                status="APPLIED",
-                mode=mode,
-                created_at=utc_now_iso(),
-                completed_at=utc_now_iso(),
-                details={"target_path": target.storage_path},
-            )
         )
         return self.repository.update_patch_status(
             patch_id,
@@ -334,12 +291,12 @@ class ProposalPipeline:
         return actions
 
     def _source_event_from_bundle(self, bundle: ArtifactBundle) -> dict[str, Any]:
-        metadata = redact_data(bundle.metadata)
+        metadata = mask_data(bundle.metadata)
         links = {key: value for key, value in bundle.links.items() if value}
         event: dict[str, Any] = {
             "source_type": bundle.source_type,
             "event_type": bundle.event_type,
-            "context": redact_data(bundle.context),
+            "context": mask_data(bundle.context),
             "metadata": metadata,
         }
         if bundle.external_event_id:
@@ -357,7 +314,7 @@ class ProposalPipeline:
         json_path = output_dir / f"{proposal.id}.json"
         markdown_path.write_text(proposal.draft_markdown, encoding="utf-8")
         json_path.write_text(
-            json.dumps(redact_data(proposal.to_dict()), indent=2),
+            json.dumps(mask_data(proposal.to_dict()), indent=2),
             encoding="utf-8",
         )
         logger.info("Wrote proposal outputs for %s", proposal.id)

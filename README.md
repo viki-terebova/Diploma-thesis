@@ -2,7 +2,7 @@
 
 Ariadne is a connector-oriented system for automated technical documentation maintenance using large language models.
 
-This repository contains the first local-first implementation of Ariadne. It provides the core workflow of the final system in a reproducible environment: change ingestion, event normalization, sensitive-content redaction, documentation target selection, proposal generation, candidate documentation patches, approval, and local Markdown application.
+This repository contains the first local-first implementation of Ariadne. It provides the core workflow of the final system in a reproducible environment: change ingestion, event normalization, sensitive-content masking, documentation target selection, proposal generation, candidate documentation patches, approval, and local Markdown application.
 
 External platform connectors such as GitHub, GitLab, Confluence, Jira, ServiceNow, Notion, and internal wiki integrations are planned extensions of the same architecture. They are not implemented in the current stage.
 
@@ -16,11 +16,10 @@ Implemented:
 - Generic local webhook-style trigger.
 - Markdown documentation target under `sample_docs/`.
 - Deterministic `DummyLLM` layer as a placeholder for future ChatGPT API integration.
-- Redaction of common secret patterns before proposal generation and storage.
+- Masking of common secret patterns before proposal generation and storage.
 - Candidate documentation patch with current content, proposed content, and diff.
-- Approval and local apply endpoints.
-- Generic connection records for future connector configuration.
-- Focused tests for redaction, protected blocks, local triggers, proposals, patches, and apply flow.
+- Simple approve, reject, and local apply endpoints.
+- Focused tests for sensitive-data masking, protected blocks, local triggers, proposals, patches, and apply flow.
 
 Not implemented yet:
 
@@ -37,8 +36,8 @@ Not implemented yet:
 backend/
   src/ariadne_doc_assistant/
     api/          FastAPI routes
-    core/         proposal pipeline, redaction, patch generation
-    connectors/   local Git, local webhook stub, local Markdown target, connector interfaces
+    core/         proposal pipeline, sensitive-data masking, patch generation
+    connectors/   local Git, local webhook stub, local Markdown target
     locator/      local documentation target selection
     llm/          deterministic placeholder LLM layer
     storage/      PostgreSQL models and repository
@@ -126,19 +125,6 @@ curl -X POST http://localhost:8000/documentation-targets \
   }'
 ```
 
-Create an approval policy:
-
-```bash
-curl -X POST http://localhost:8000/documentation-targets/local-api-doc/policy \
-  -H "Content-Type: application/json" \
-  -d '{
-    "review_required": true,
-    "auto_apply": false,
-    "allowed_scope": "page",
-    "is_enabled": true
-  }'
-```
-
 Trigger a local Git diff proposal:
 
 ```bash
@@ -185,27 +171,24 @@ curl -X POST http://localhost:8000/patches/<patch-id>/approve
 curl -X POST http://localhost:8000/patches/<patch-id>/apply
 ```
 
+Or reject the patch:
+
+```bash
+curl -X POST http://localhost:8000/patches/<patch-id>/reject
+```
+
 The local Markdown target is updated in `sample_docs/api.md`.
 
 If no matching target exists, Ariadne creates a generated local target under `sample_docs/generated/` and prepares a create patch.
-
-## Future Connector Configuration
-
-The backend keeps a generic `connections` table and `/connections` endpoints. These records are intended to store source or target connector configuration metadata for future connector work.
-
-They do not mean that an external connector is implemented today. The current executable flow uses local Git, local webhook-style input, and local Markdown output as the first implementation of the connector-oriented architecture.
 
 ## Storage
 
 PostgreSQL tables:
 
-- `connections`
 - `trigger_events`
 - `proposals`
 - `documentation_targets`
-- `approval_policies`
 - `proposal_patches`
-- `delivery_runs`
 
 Generated proposal files are written to:
 
@@ -232,37 +215,3 @@ On Windows, if pytest cannot access the default temp directory, run with an expl
 ```bash
 ./.venv/Scripts/python.exe -m pytest --basetemp=.tmp_pytest_run
 ```
-
-## What To Show On Project Seminar 1
-
-Useful current-system walkthrough:
-
-- Start PostgreSQL and the backend.
-- Open `/openapi`.
-- Register `sample_docs/api.md` as a local documentation target.
-- Send a local webhook or Git trigger.
-- Inspect the generated proposal and patch.
-- Approve and apply the patch.
-- Show the changed Markdown document.
-
-Do not claim yet:
-
-- real ChatGPT API generation,
-- working GitHub/Confluence/Jira integrations,
-- full semantic search,
-- enterprise access control,
-- finished evaluation on real projects.
-
-## Future Direction
-
-See:
-
-- `docs/demo-flow.md`
-- `docs/architecture.md`
-- `docs/future-roadmap.md`
-- `docs/future-connectors.md`
-- `docs/evaluation-plan.md`
-
-## License
-
-MIT. See `LICENSE`.

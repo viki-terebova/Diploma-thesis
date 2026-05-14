@@ -10,10 +10,9 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from sqlalchemy.orm import Session
 
 from ariadne_doc_assistant.config import settings
-from ariadne_doc_assistant.connectors.models import ConnectionConfig
 from ariadne_doc_assistant.core.pipeline import ProposalPipeline
 from ariadne_doc_assistant.storage.db import ProposalRepository
-from ariadne_doc_assistant.storage.models import ApprovalPolicy, DocumentationTarget
+from ariadne_doc_assistant.storage.models import DocumentationTarget
 from ariadne_doc_assistant.storage.session import get_db_session
 
 
@@ -164,58 +163,6 @@ class ProposalResponse(BaseModel):
     patch: dict[str, Any] | None = None
 
 
-class ConnectionCreateRequest(BaseModel):
-    model_config = ConfigDict(
-        json_schema_extra={
-            "example": {
-                "id": "future-source",
-                "name": "Future source connector",
-                "connector_kind": "future_source",
-                "role": "source",
-                "base_url": "https://example.invalid",
-                "config": {
-                    "repository": "org/repo",
-                    "notes": "Stored for future connector implementation",
-                },
-                "secret_ref": "future-token-ref",
-                "is_enabled": True,
-            }
-        }
-    )
-
-    id: str | None = None
-    name: str
-    connector_kind: str
-    role: str
-    base_url: str | None = None
-    config: dict[str, Any] = Field(default_factory=dict)
-    secret_ref: str | None = None
-    is_enabled: bool = True
-
-    def to_connection_config(self) -> ConnectionConfig:
-        return ConnectionConfig(
-            id=self.id or str(uuid4()),
-            name=self.name,
-            connector_kind=self.connector_kind.strip().lower(),
-            role=self.role.strip().lower(),
-            base_url=self.base_url,
-            config=self.config,
-            secret_ref=self.secret_ref,
-            is_enabled=self.is_enabled,
-        )
-
-
-class ConnectionResponse(BaseModel):
-    id: str
-    name: str
-    connector_kind: str
-    role: str
-    base_url: str | None = None
-    config: dict[str, Any]
-    secret_ref: str | None = None
-    is_enabled: bool
-
-
 class DocumentationTargetCreateRequest(BaseModel):
     model_config = ConfigDict(
         json_schema_extra={
@@ -228,7 +175,6 @@ class DocumentationTargetCreateRequest(BaseModel):
                 "config": {
                     "component": "backend",
                     "match_any_prefixes": ["docs/", "backend/src/ariadne_doc_assistant/api/"],
-                    "repository": "org/repo",
                 },
                 "is_enabled": True,
             }
@@ -251,22 +197,6 @@ class DocumentationTargetResponse(BaseModel):
     storage_path: str
     scope: str
     config: dict[str, Any]
-    is_enabled: bool
-
-
-class ApprovalPolicyRequest(BaseModel):
-    review_required: bool = True
-    auto_apply: bool = False
-    allowed_scope: str = "review_only"
-    is_enabled: bool = True
-
-
-class ApprovalPolicyResponse(BaseModel):
-    id: str
-    target_id: str
-    review_required: bool
-    auto_apply: bool
-    allowed_scope: str
     is_enabled: bool
 
 
@@ -344,56 +274,6 @@ def trigger(
 
 
 @router.post(
-    "/connections",
-    tags=["Connections"],
-    summary="Create a stored connector configuration",
-    description=(
-        "Creates a generic source or target connector configuration record. "
-        "External connector execution is future work; this endpoint only stores metadata."
-    ),
-    response_model=ConnectionResponse,
-)
-def create_connection(
-    request: ConnectionCreateRequest,
-    repo: ProposalRepository = Depends(get_repository),
-):
-    try:
-        connection = repo.create_connection(request.to_connection_config())
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return connection
-
-
-@router.get(
-    "/connections",
-    tags=["Connections"],
-    summary="List stored connector configurations",
-    response_model=list[ConnectionResponse],
-)
-def list_connections(
-    limit: int = 50,
-    repo: ProposalRepository = Depends(get_repository),
-):
-    return repo.list_connections(limit=limit)
-
-
-@router.get(
-    "/connections/{connection_id}",
-    tags=["Connections"],
-    summary="Get one stored connector configuration",
-    response_model=ConnectionResponse,
-)
-def get_connection(
-    connection_id: str,
-    repo: ProposalRepository = Depends(get_repository),
-):
-    connection = repo.get_connection(connection_id)
-    if connection is None:
-        raise HTTPException(status_code=404, detail="Connection not found")
-    return connection
-
-
-@router.post(
     "/documentation-targets",
     tags=["Targets"],
     summary="Create a stored documentation target",
@@ -451,49 +331,6 @@ def get_documentation_target(
     return target.to_dict()
 
 
-@router.post(
-    "/documentation-targets/{target_id}/policy",
-    tags=["Policies"],
-    summary="Create or update the approval policy for a documentation target",
-    response_model=ApprovalPolicyResponse,
-)
-def upsert_target_policy(
-    target_id: str,
-    request: ApprovalPolicyRequest,
-    repo: ProposalRepository = Depends(get_repository),
-):
-    target = repo.get_documentation_target(target_id)
-    if target is None:
-        raise HTTPException(status_code=404, detail="Documentation target not found")
-    policy = repo.upsert_approval_policy(
-        ApprovalPolicy(
-            id=f"policy-{target_id}",
-            target_id=target_id,
-            review_required=request.review_required,
-            auto_apply=request.auto_apply,
-            allowed_scope=request.allowed_scope,
-            is_enabled=request.is_enabled,
-        )
-    )
-    return policy.to_dict()
-
-
-@router.get(
-    "/documentation-targets/{target_id}/policy",
-    tags=["Policies"],
-    summary="Get the approval policy for a documentation target",
-    response_model=ApprovalPolicyResponse,
-)
-def get_target_policy(
-    target_id: str,
-    repo: ProposalRepository = Depends(get_repository),
-):
-    policy = repo.get_approval_policy(target_id)
-    if policy is None:
-        raise HTTPException(status_code=404, detail="Approval policy not found")
-    return policy.to_dict()
-
-
 @router.get(
     "/patches",
     tags=["Patches"],
@@ -534,6 +371,22 @@ def approve_patch(
     pipeline: ProposalPipeline = Depends(get_pipeline),
 ):
     patch = pipeline.approve_patch(patch_id)
+    if patch is None:
+        raise HTTPException(status_code=404, detail="Patch not found")
+    return patch
+
+
+@router.post(
+    "/patches/{patch_id}/reject",
+    tags=["Patches"],
+    summary="Reject a generated documentation patch",
+    response_model=ProposalPatchResponse,
+)
+def reject_patch(
+    patch_id: str,
+    pipeline: ProposalPipeline = Depends(get_pipeline),
+):
+    patch = pipeline.reject_patch(patch_id)
     if patch is None:
         raise HTTPException(status_code=404, detail="Patch not found")
     return patch

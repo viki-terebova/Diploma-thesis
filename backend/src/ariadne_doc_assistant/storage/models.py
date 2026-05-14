@@ -57,26 +57,6 @@ class DocumentationTarget:
 
 
 @dataclass(slots=True)
-class ApprovalPolicy:
-    id: str
-    target_id: str
-    review_required: bool
-    auto_apply: bool
-    allowed_scope: str
-    is_enabled: bool = True
-
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "id": self.id,
-            "target_id": self.target_id,
-            "review_required": self.review_required,
-            "auto_apply": self.auto_apply,
-            "allowed_scope": self.allowed_scope,
-            "is_enabled": self.is_enabled,
-        }
-
-
-@dataclass(slots=True)
 class ProposalPatch:
     id: str
     proposal_id: str
@@ -107,28 +87,4 @@ class ProposalPatch:
             "created_at": self.created_at,
             "approved_at": self.approved_at,
             "applied_at": self.applied_at,
-        }
-
-
-@dataclass(slots=True)
-class DeliveryRun:
-    id: str
-    patch_id: str
-    target_id: str
-    status: str
-    mode: str
-    created_at: str
-    completed_at: str | None = None
-    details: dict[str, Any] | None = None
-
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "id": self.id,
-            "patch_id": self.patch_id,
-            "target_id": self.target_id,
-            "status": self.status,
-            "mode": self.mode,
-            "created_at": self.created_at,
-            "completed_at": self.completed_at,
-            "details": self.details or {},
         }

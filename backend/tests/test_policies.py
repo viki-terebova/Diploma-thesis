@@ -1,7 +1,7 @@
-from ariadne_doc_assistant.core.policies import redact_text
+from ariadne_doc_assistant.core.policies import mask_text
 
 
-def test_redaction() -> None:
+def test_masking() -> None:
     raw = """
     token=super-secret-value
     Authorization: Bearer abc123456
@@ -9,8 +9,8 @@ def test_redaction() -> None:
     hidden
     -----END PRIVATE KEY-----
     """
-    redacted = redact_text(raw)
-    assert "super-secret-value" not in redacted
-    assert "abc123456" not in redacted
-    assert "PRIVATE KEY" not in redacted
-    assert "[REDACTED]" in redacted
+    masked = mask_text(raw)
+    assert "super-secret-value" not in masked
+    assert "abc123456" not in masked
+    assert "PRIVATE KEY" not in masked
+    assert "[MASKED]" in masked

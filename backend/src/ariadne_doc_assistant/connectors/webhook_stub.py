@@ -2,35 +2,15 @@ from __future__ import annotations
 
 from typing import Any
 
-from ariadne_doc_assistant.connectors.base import BaseConnector, register_connector
-from ariadne_doc_assistant.connectors.models import ArtifactBundle, ConnectionConfig
-from ariadne_doc_assistant.core.policies import redact_data, redact_text
+from ariadne_doc_assistant.connectors.models import ArtifactBundle
+from ariadne_doc_assistant.core.policies import mask_data, mask_text
 
 
-class WebhookStubConnector(BaseConnector):
-    name = "webhook"
-    connector_kind = "webhook"
+class WebhookStubConnector:
+    def normalize_event(self, payload: dict[str, Any]) -> dict[str, Any]:
+        return mask_data(payload)
 
-    def is_enabled(self) -> bool:
-        return True
-
-    def validate_config(self, connection: ConnectionConfig) -> None:
-        super().validate_config(connection)
-        if connection.role != "source":
-            raise ValueError("WebhookStubConnector supports only source connections")
-
-    def normalize_event(
-        self,
-        payload: dict[str, Any],
-        connection: ConnectionConfig | None = None,
-    ) -> dict[str, Any]:
-        return redact_data(payload)
-
-    def collect_artifacts(
-        self,
-        normalized_event: dict[str, Any],
-        connection: ConnectionConfig | None = None,
-    ) -> ArtifactBundle:
+    def collect_artifacts(self, normalized_event: dict[str, Any]) -> ArtifactBundle:
         collected = self.collect(normalized_event)
         return ArtifactBundle(
             source_type="webhook",
@@ -65,10 +45,7 @@ class WebhookStubConnector(BaseConnector):
         return {
             "source_name": source_name,
             "files": [str(path) for path in changed_files],
-            "summary": redact_text(summary or f"Change event received from {source_name}."),
-            "diff_excerpt": redact_text(diff_excerpt or ""),
-            "payload": redact_data(payload),
+            "summary": mask_text(summary or f"Change event received from {source_name}."),
+            "diff_excerpt": mask_text(diff_excerpt or ""),
+            "payload": mask_data(payload),
         }
-
-
-register_connector(WebhookStubConnector.name, WebhookStubConnector)

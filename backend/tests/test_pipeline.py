@@ -7,16 +7,14 @@ from typing import Any
 from ariadne_doc_assistant.connectors.models import ArtifactBundle
 from ariadne_doc_assistant.config import Settings
 from ariadne_doc_assistant.core.pipeline import ProposalPipeline
-from ariadne_doc_assistant.storage.models import ApprovalPolicy, DeliveryRun, DocumentationTarget, ProposalPatch
+from ariadne_doc_assistant.storage.models import DocumentationTarget, ProposalPatch
 
 
 class FakeProposalRepository:
     def __init__(self) -> None:
         self._proposals: dict[str, dict[str, Any]] = {}
         self._targets: dict[str, DocumentationTarget] = {}
-        self._policies: dict[str, ApprovalPolicy] = {}
         self._patches: dict[str, ProposalPatch] = {}
-        self._deliveries: list[DeliveryRun] = []
 
     def save_proposal(self, proposal) -> None:
         self._proposals[proposal.id] = proposal.to_dict()
@@ -36,13 +34,6 @@ class FakeProposalRepository:
 
     def list_documentation_targets(self, limit: int = 50) -> list[DocumentationTarget]:
         return list(self._targets.values())[:limit]
-
-    def upsert_approval_policy(self, policy: ApprovalPolicy) -> ApprovalPolicy:
-        self._policies[policy.target_id] = policy
-        return policy
-
-    def get_approval_policy(self, target_id: str) -> ApprovalPolicy | None:
-        return self._policies.get(target_id)
 
     def create_patch(self, patch: ProposalPatch) -> ProposalPatch:
         self._patches[patch.id] = patch
@@ -76,10 +67,6 @@ class FakeProposalRepository:
         )
         self._patches[patch_id] = updated
         return updated.to_dict()
-
-    def create_delivery_run(self, delivery: DeliveryRun) -> DeliveryRun:
-        self._deliveries.append(delivery)
-        return delivery
 
 
 def _git(repo: Path, *args: str) -> None:
@@ -238,3 +225,62 @@ def test_pipeline_approves_and_applies_local_patch(tmp_path: Path) -> None:
     assert approved["status"] == "APPROVED"
     assert applied["status"] == "APPLIED"
     assert "Proposed Documentation Update" in docs_path.read_text(encoding="utf-8")
+
+
+def test_pipeline_rejects_patch(tmp_path: Path) -> None:
+    repository = FakeProposalRepository()
+    pipeline = ProposalPipeline(settings=_settings(tmp_path, project_root=tmp_path), repository=repository)
+    result = pipeline.run_artifact_bundle(
+        ArtifactBundle(
+            source_type="webhook",
+            event_type="webhook_event",
+            external_event_id=None,
+            title="Update docs",
+            summary="Docs may need review.",
+            changed_files=["README.md"],
+            diff_excerpt="",
+            context={},
+        )
+    )
+
+    rejected = pipeline.reject_patch(result["patch"]["id"])
+
+    assert rejected["status"] == "REJECTED"
+
+
+def test_pipeline_requires_approval_before_apply(tmp_path: Path) -> None:
+    docs_path = tmp_path / "sample_docs" / "api.md"
+    docs_path.parent.mkdir()
+    docs_path.write_text("# API\n", encoding="utf-8")
+
+    repository = FakeProposalRepository()
+    repository.create_documentation_target(
+        DocumentationTarget(
+            id="local-api-doc",
+            name="Local API documentation",
+            target_kind="local_docs",
+            storage_path="sample_docs/api.md",
+            scope="page",
+            config={"component": "backend"},
+        )
+    )
+    pipeline = ProposalPipeline(settings=_settings(tmp_path, project_root=tmp_path), repository=repository)
+    result = pipeline.run_artifact_bundle(
+        ArtifactBundle(
+            source_type="webhook",
+            event_type="webhook_event",
+            external_event_id=None,
+            title="Update API docs",
+            summary="API docs changed.",
+            changed_files=["backend/src/ariadne_doc_assistant/api/routes.py"],
+            diff_excerpt="",
+            context={"component": "backend"},
+        )
+    )
+
+    try:
+        pipeline.apply_patch(result["patch"]["id"])
+    except ValueError as exc:
+        assert "must be approved" in str(exc)
+    else:
+        raise AssertionError("Expected apply_patch to require approval")

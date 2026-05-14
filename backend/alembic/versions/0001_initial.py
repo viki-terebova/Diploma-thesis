@@ -13,24 +13,6 @@ depends_on = None
 
 def upgrade() -> None:
     op.create_table(
-        "connections",
-        sa.Column("id", sa.String(length=64), nullable=False),
-        sa.Column("name", sa.String(length=255), nullable=False),
-        sa.Column("connector_kind", sa.String(length=64), nullable=False),
-        sa.Column("role", sa.String(length=32), nullable=False),
-        sa.Column("base_url", sa.String(length=512), nullable=True),
-        sa.Column("config", postgresql.JSONB(astext_type=sa.Text()), nullable=False),
-        sa.Column("secret_ref", sa.String(length=255), nullable=True),
-        sa.Column("is_enabled", sa.Boolean(), nullable=False),
-        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
-        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
-        sa.PrimaryKeyConstraint("id"),
-    )
-    op.create_index(op.f("ix_connections_connector_kind"), "connections", ["connector_kind"], unique=False)
-    op.create_index(op.f("ix_connections_is_enabled"), "connections", ["is_enabled"], unique=False)
-    op.create_index(op.f("ix_connections_role"), "connections", ["role"], unique=False)
-
-    op.create_table(
         "documentation_targets",
         sa.Column("id", sa.String(length=64), nullable=False),
         sa.Column("name", sa.String(length=255), nullable=False),
@@ -46,21 +28,6 @@ def upgrade() -> None:
     op.create_index(op.f("ix_documentation_targets_is_enabled"), "documentation_targets", ["is_enabled"], unique=False)
     op.create_index(op.f("ix_documentation_targets_scope"), "documentation_targets", ["scope"], unique=False)
     op.create_index(op.f("ix_documentation_targets_target_kind"), "documentation_targets", ["target_kind"], unique=False)
-
-    op.create_table(
-        "approval_policies",
-        sa.Column("id", sa.String(length=64), nullable=False),
-        sa.Column("target_id", sa.String(length=64), nullable=False),
-        sa.Column("review_required", sa.Boolean(), nullable=False),
-        sa.Column("auto_apply", sa.Boolean(), nullable=False),
-        sa.Column("allowed_scope", sa.String(length=64), nullable=False),
-        sa.Column("is_enabled", sa.Boolean(), nullable=False),
-        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
-        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
-        sa.ForeignKeyConstraint(["target_id"], ["documentation_targets.id"], ondelete="CASCADE"),
-        sa.PrimaryKeyConstraint("id"),
-    )
-    op.create_index(op.f("ix_approval_policies_target_id"), "approval_policies", ["target_id"], unique=False)
 
     op.create_table(
         "trigger_events",
@@ -113,30 +80,9 @@ def upgrade() -> None:
     op.create_index(op.f("ix_proposal_patches_status"), "proposal_patches", ["status"], unique=False)
     op.create_index(op.f("ix_proposal_patches_target_id"), "proposal_patches", ["target_id"], unique=False)
 
-    op.create_table(
-        "delivery_runs",
-        sa.Column("id", sa.String(length=64), nullable=False),
-        sa.Column("patch_id", sa.String(length=64), nullable=False),
-        sa.Column("target_id", sa.String(length=64), nullable=False),
-        sa.Column("status", sa.String(length=32), nullable=False),
-        sa.Column("mode", sa.String(length=32), nullable=False),
-        sa.Column("details", postgresql.JSONB(astext_type=sa.Text()), nullable=False),
-        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
-        sa.Column("completed_at", sa.DateTime(timezone=True), nullable=True),
-        sa.ForeignKeyConstraint(["patch_id"], ["proposal_patches.id"], ondelete="CASCADE"),
-        sa.ForeignKeyConstraint(["target_id"], ["documentation_targets.id"], ondelete="CASCADE"),
-        sa.PrimaryKeyConstraint("id"),
-    )
-    op.create_index(op.f("ix_delivery_runs_patch_id"), "delivery_runs", ["patch_id"], unique=False)
-    op.create_index(op.f("ix_delivery_runs_status"), "delivery_runs", ["status"], unique=False)
-    op.create_index(op.f("ix_delivery_runs_target_id"), "delivery_runs", ["target_id"], unique=False)
-
 
 def downgrade() -> None:
-    op.execute("DROP TABLE IF EXISTS delivery_runs CASCADE")
     op.execute("DROP TABLE IF EXISTS proposal_patches CASCADE")
     op.execute("DROP TABLE IF EXISTS proposals CASCADE")
     op.execute("DROP TABLE IF EXISTS trigger_events CASCADE")
-    op.execute("DROP TABLE IF EXISTS approval_policies CASCADE")
     op.execute("DROP TABLE IF EXISTS documentation_targets CASCADE")
-    op.execute("DROP TABLE IF EXISTS connections CASCADE")

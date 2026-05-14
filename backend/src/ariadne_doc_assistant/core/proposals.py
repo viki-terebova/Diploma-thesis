@@ -4,7 +4,7 @@ import json
 from difflib import unified_diff
 from uuid import uuid4
 
-from ariadne_doc_assistant.core.policies import redact_data, redact_text
+from ariadne_doc_assistant.core.policies import mask_data, mask_text
 from ariadne_doc_assistant.storage.models import Proposal, ProposalPatch
 from ariadne_doc_assistant.utils.time import utc_now_iso
 
@@ -19,24 +19,24 @@ def build_proposal(
     llm_output: str,
 ) -> Proposal:
     proposal_id = str(uuid4())
-    redacted_event = redact_data(source_event)
-    redacted_summary = redact_text(diff_summary)
-    redacted_markdown = render_markdown(
+    masked_event = mask_data(source_event)
+    masked_summary = mask_text(diff_summary)
+    masked_markdown = render_markdown(
         proposal_id=proposal_id,
-        source_event=redacted_event,
+        source_event=masked_event,
         affected_files=affected_files,
-        diff_summary=redacted_summary,
+        diff_summary=masked_summary,
         suggested_sections=suggested_sections,
         recommended_actions=recommended_actions,
-        llm_output=redact_text(llm_output),
-        diff_text=redact_text(diff_text),
+        llm_output=mask_text(llm_output),
+        diff_text=mask_text(diff_text),
     )
     payload = {
         "id": proposal_id,
         "created_at": utc_now_iso(),
-        "source_event": redacted_event,
+        "source_event": masked_event,
         "affected_files": affected_files,
-        "diff_summary": redacted_summary,
+        "diff_summary": masked_summary,
         "suggested_doc_sections": suggested_sections,
         "recommended_actions": recommended_actions,
         "status": "DRAFT",
@@ -46,8 +46,8 @@ def build_proposal(
         created_at=payload["created_at"],
         source_event=payload["source_event"],
         affected_files=affected_files,
-        diff_summary=redacted_summary,
-        draft_markdown=redacted_markdown,
+        diff_summary=masked_summary,
+        draft_markdown=masked_markdown,
         draft_json=json.dumps(payload, indent=2),
         status="DRAFT",
     )
@@ -69,7 +69,7 @@ def build_patch(
         target_id=target_id,
         target_path=target_path,
         patch_type=patch_type,
-        summary=redact_text(summary),
+        summary=mask_text(summary),
         current_content=current_content,
         proposed_content=proposed_content,
         diff_text=render_diff(current_content, proposed_content),
@@ -91,12 +91,12 @@ def build_local_docs_patch_content(
         title = source_event.get("title") or "Proposed Documentation Page"
         return "\n".join(
             [
-                f"# {redact_text(title)}",
+                f"# {mask_text(title)}",
                 "",
-                "This page was created by the Ariadne local demo flow because no existing documentation target matched the incoming change event.",
+                "This page was created by the Ariadne local workflow because no existing documentation target matched the incoming change event.",
                 "",
                 "## Summary of change",
-                redact_text(diff_summary),
+                mask_text(diff_summary),
                 "",
                 "## Affected files",
                 *([f"- `{path}`" for path in affected_files] or ["- No affected files detected"]),
@@ -105,7 +105,7 @@ def build_local_docs_patch_content(
                 *([f"- {section}" for section in suggested_sections] or ["- General documentation review"]),
                 "",
                 "## Draft guidance",
-                redact_text(llm_output),
+                mask_text(llm_output),
                 "",
                 "<!-- ARIADNE:PATCH-START -->",
                 "## Proposed Documentation Update",
@@ -126,7 +126,7 @@ def build_local_docs_patch_content(
             f"Source: `{source_event.get('source_type', 'unknown')}` / `{source_event.get('event_type', 'unknown')}`",
             "",
             "### Change summary",
-            redact_text(diff_summary),
+            mask_text(diff_summary),
             "",
             "### Affected files",
             *affected_file_lines,
@@ -135,7 +135,7 @@ def build_local_docs_patch_content(
             *suggested_section_lines,
             "",
             "### Draft guidance",
-            redact_text(llm_output),
+            mask_text(llm_output),
             "<!-- ARIADNE:PATCH-END -->",
         ]
     )

@@ -26,7 +26,6 @@ services:
       POSTGRES_DATABASE_URL: postgresql+psycopg://ariadne_user:ariadne_db_password@postgres:5432/ariadne_db
       APP_OUTPUT_DIR: /workspace/output/proposals
       APP_LOG_LEVEL: INFO
-      APP_ENABLE_INTEGRATED_CONNECTORS: "false"
     volumes:
       - ./:/workspace
     depends_on:

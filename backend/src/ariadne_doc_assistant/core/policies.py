@@ -15,28 +15,28 @@ PROTECTED_START = "<!-- PROTECTED:START -->"
 PROTECTED_END = "<!-- PROTECTED:END -->"
 
 
-def redact_text(text: str) -> str:
-    redacted = text
+def mask_text(text: str) -> str:
+    masked = text
     for pattern in SECRET_PATTERNS:
-        redacted = pattern.sub(_replacement, redacted)
-    return redacted
+        masked = pattern.sub(_replacement, masked)
+    return masked
 
 
 def _replacement(match: re.Match[str]) -> str:
     groups = match.groups()
     if groups:
         label = groups[0]
-        return f"{label}= [REDACTED]"
-    return "[REDACTED]"
+        return f"{label}= [MASKED]"
+    return "[MASKED]"
 
 
-def redact_data(value: object) -> object:
+def mask_data(value: object) -> object:
     if isinstance(value, str):
-        return redact_text(value)
+        return mask_text(value)
     if isinstance(value, Mapping):
-        return {key: redact_data(item) for key, item in value.items()}
+        return {key: mask_data(item) for key, item in value.items()}
     if isinstance(value, Sequence) and not isinstance(value, (bytes, bytearray, str)):
-        return [redact_data(item) for item in value]
+        return [mask_data(item) for item in value]
     return value
 
 

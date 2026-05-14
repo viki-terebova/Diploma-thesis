@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from ariadne_doc_assistant.core.policies import redact_data, redact_text
+from ariadne_doc_assistant.core.policies import mask_data, mask_text
 
 
 def build_prompt(
@@ -9,9 +9,9 @@ def build_prompt(
     diff_summary: str,
     diff_text: str,
 ) -> str:
-    safe_event = redact_data(source_event)
-    safe_summary = redact_text(diff_summary)
-    safe_diff = redact_text(diff_text)
+    safe_event = mask_data(source_event)
+    safe_summary = mask_text(diff_summary)
+    safe_diff = mask_text(diff_text)
     return "\n".join(
         [
             "Create a concise documentation update proposal.",

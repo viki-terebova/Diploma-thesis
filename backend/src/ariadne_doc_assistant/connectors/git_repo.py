@@ -4,28 +4,12 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
-from ariadne_doc_assistant.connectors.base import BaseConnector, register_connector
-from ariadne_doc_assistant.connectors.models import ArtifactBundle, ConnectionConfig
-from ariadne_doc_assistant.core.policies import redact_text
+from ariadne_doc_assistant.connectors.models import ArtifactBundle
+from ariadne_doc_assistant.core.policies import mask_text
 
 
-class GitRepositoryConnector(BaseConnector):
-    name = "git"
-    connector_kind = "git"
-
-    def is_enabled(self) -> bool:
-        return True
-
-    def validate_config(self, connection: ConnectionConfig) -> None:
-        super().validate_config(connection)
-        if connection.role != "source":
-            raise ValueError("GitRepositoryConnector supports only source connections")
-
-    def normalize_event(
-        self,
-        payload: dict[str, Any],
-        connection: ConnectionConfig | None = None,
-    ) -> dict[str, Any]:
+class GitRepositoryConnector:
+    def normalize_event(self, payload: dict[str, Any]) -> dict[str, Any]:
         repo_path = payload.get("repo_path")
         if not isinstance(repo_path, str) or not repo_path.strip():
             raise ValueError("Git payload field 'repo_path' must be a non-empty string")
@@ -40,11 +24,7 @@ class GitRepositoryConnector(BaseConnector):
             "metadata": payload.get("metadata", {}),
         }
 
-    def collect_artifacts(
-        self,
-        normalized_event: dict[str, Any],
-        connection: ConnectionConfig | None = None,
-    ) -> ArtifactBundle:
+    def collect_artifacts(self, normalized_event: dict[str, Any]) -> ArtifactBundle:
         repo_path = Path(normalized_event["repo_path"])
         diff_result = self.collect_diff(
             repo_path=repo_path,
@@ -59,7 +39,7 @@ class GitRepositoryConnector(BaseConnector):
             title=normalized_event.get("title"),
             summary=summary,
             changed_files=diff_result["files"],
-            diff_excerpt=redact_text(diff_result["diff"]),
+            diff_excerpt=mask_text(diff_result["diff"]),
             metadata={
                 **normalized_event.get("metadata", {}),
                 "from_ref": normalized_event["from_ref"],
@@ -102,6 +82,3 @@ class GitRepositoryConnector(BaseConnector):
             f"Changed {len(files)} file(s), added {added} line(s), removed {removed} line(s). "
             f"Files: {', '.join(files) if files else 'none'}."
         )
-
-
-register_connector(GitRepositoryConnector.name, GitRepositoryConnector)

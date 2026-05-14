@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 
-from ariadne_doc_assistant.core.policies import redact_text
+from ariadne_doc_assistant.core.policies import mask_text
 
 
 class BaseLLM(ABC):
@@ -13,7 +13,7 @@ class BaseLLM(ABC):
 
 class DummyLLM(BaseLLM):
     def generate(self, prompt: str) -> str:
-        safe_prompt = redact_text(prompt)
+        safe_prompt = mask_text(prompt)
         lower_prompt = safe_prompt.lower()
         focus_points: list[str] = []
         if "api" in lower_prompt:

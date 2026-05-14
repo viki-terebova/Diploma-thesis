@@ -1,8 +1,5 @@
 from __future__ import annotations
 
-import logging
-from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -11,24 +8,14 @@ from fastapi.staticfiles import StaticFiles
 from ariadne_doc_assistant.api.routes import router
 from ariadne_doc_assistant.config import settings
 from ariadne_doc_assistant.logging_conf import configure_logging
-from ariadne_doc_assistant.utils.plugin_loader import load_plugins
 
 
 configure_logging(settings.log_level)
-logger = logging.getLogger(__name__)
 
 OPENAPI_TAGS = [
     {
-        "name": "Connections",
-        "description": "Endpoints for storing future source or target connector configuration.",
-    },
-    {
         "name": "Targets",
-        "description": "Endpoints for managing documentation targets used by the local demo target connector.",
-    },
-    {
-        "name": "Policies",
-        "description": "Endpoints for approval and autonomy policies applied to documentation targets.",
+        "description": "Endpoints for managing local Markdown documentation targets.",
     },
     {
         "name": "Triggers",
@@ -44,12 +31,6 @@ OPENAPI_TAGS = [
     },
 ]
 
-@asynccontextmanager
-async def lifespan(_: FastAPI) -> AsyncIterator[None]:
-    loaded_plugins = load_plugins(settings.plugin_path)
-    logger.info("Application started. Loaded plugins: %s", ", ".join(loaded_plugins) if loaded_plugins else "none")
-    yield
-
 app = FastAPI(
     title=settings.app_name,
     summary="Artifact-connected documentation assistant",
@@ -62,7 +43,6 @@ app = FastAPI(
     docs_url="/openapi",
     redoc_url=None,
     openapi_url="/openapi.json",
-    lifespan=lifespan,
 )
 app.include_router(router)
 

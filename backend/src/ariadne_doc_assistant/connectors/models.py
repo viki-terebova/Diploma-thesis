@@ -5,18 +5,6 @@ from typing import Any
 
 
 @dataclass(slots=True)
-class ConnectionConfig:
-    id: str
-    name: str
-    connector_kind: str
-    role: str
-    base_url: str | None = None
-    config: dict[str, Any] = field(default_factory=dict)
-    secret_ref: str | None = None
-    is_enabled: bool = True
-
-
-@dataclass(slots=True)
 class ArtifactBundle:
     source_type: str
     event_type: str
@@ -28,10 +16,3 @@ class ArtifactBundle:
     metadata: dict[str, Any] = field(default_factory=dict)
     links: dict[str, str] = field(default_factory=dict)
     context: dict[str, Any] = field(default_factory=dict)
-
-
-@dataclass(slots=True)
-class DeliveryResult:
-    status: str
-    external_id: str | None = None
-    response: dict[str, Any] = field(default_factory=dict)
